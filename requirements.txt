@@ -4,3 +4,5 @@ html5lib==1.1
 python-dotenv==1.0.0
 selenium==4.20.0
 webdriver-manager==4.0.2
+fastapi==0.110.0
+uvicorn[standard]==0.27.1

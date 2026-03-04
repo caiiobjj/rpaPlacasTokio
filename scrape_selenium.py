@@ -13,6 +13,7 @@ from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from webdriver_manager.chrome import ChromeDriverManager
 
+from config import get_credentials, get_urls, get_headless
 
 def ensure_output():
     out = Path('output')
@@ -23,11 +24,9 @@ def ensure_output():
 def main():
     load_dotenv()
 
-    username = os.getenv('USERNAME')
-    password = os.getenv('PASSWORD')
-    login_url = os.getenv('LOGIN_URL', 'https://ssoportais3.tokiomarine.com.br/openam/XUI/?realm=TOKIOLFR')
-    portal_url = os.getenv('PORTAL_URL', 'http://portalparceiros.tokiomarine.com.br/')
-    headless = os.getenv('HEADLESS', 'true').lower() in ('1', 'true', 'yes', 'y')
+    username, password = get_credentials()
+    login_url, portal_url = get_urls()
+    headless = get_headless()
 
     if not username or not password:
         raise SystemExit('Preencha USERNAME e PASSWORD no .env')
