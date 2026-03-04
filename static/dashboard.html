@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prisma RPA — Painel</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background: #0f172a; }
+    .card { background: #1e293b; border: 1px solid #334155; }
+    .badge-ok       { background:#16a34a22; color:#4ade80; border:1px solid #16a34a55; }
+    .badge-error    { background:#dc262622; color:#f87171; border:1px solid #dc262655; }
+    .badge-invalid  { background:#d9770622; color:#fb923c; border:1px solid #d9770655; }
+    .badge-pending  { background:#64748b22; color:#94a3b8; border:1px solid #64748b55; }
+    .badge-cache    { background:#7c3aed22; color:#c084fc; border:1px solid #7c3aed55; }
+    .badge-notfound { background:#0ea5e922; color:#38bdf8; border:1px solid #0ea5e955; }
+    .row-ok      { border-left: 3px solid #22c55e; }
+    .row-error   { border-left: 3px solid #ef4444; }
+    .row-invalid { border-left: 3px solid #f97316; }
+    .row-pending { border-left: 3px solid #64748b; }
+    .row-selected { background: #1e3a5f !important; }
+    tr.hoverable:hover { background: #1e3a5f; cursor: pointer; }
+    .log-INFO    { color: #94a3b8; }
+    .log-WARNING { color: #fbbf24; }
+    .log-ERROR   { color: #f87171; }
+    .pulse-dot {
+      display:inline-block; width:8px; height:8px; border-radius:50%;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%,100%{ opacity:1; } 50%{ opacity:.4; }
+    }
+    /* progress bar */
+    .progress-bar-track { background:#1e293b; border-radius:9999px; height:8px; overflow:hidden; }
+    .progress-bar-fill  { height:100%; border-radius:9999px; transition: width .4s ease; }
+    /* batch status badges */
+    .bs-executando { background:#f59e0b22; color:#fbbf24; border:1px solid #f59e0b55; }
+    .bs-concluido  { background:#16a34a22; color:#4ade80; border:1px solid #16a34a55; }
+    .bs-pendente   { background:#64748b22; color:#94a3b8; border:1px solid #64748b55; }
+    .bs-aguardando { background:#3b82f622; color:#60a5fa; border:1px solid #3b82f655; }
+    .bs-cancelado  { background:#6b728022; color:#9ca3af; border:1px solid #6b728055; }
+    ::-webkit-scrollbar { width:6px; height:6px; }
+    ::-webkit-scrollbar-track { background:#1e293b; }
+    ::-webkit-scrollbar-thumb { background:#475569; border-radius:3px; }
+  </style>
+</head>
+<body class="text-slate-300 min-h-screen font-mono text-sm">
+
+  <!-- NAV -->
+  <nav class="sticky top-0 z-50 flex items-center justify-between px-6 py-3 border-b border-slate-700" style="background:#0f172a">
+    <div class="flex items-center gap-3">
+      <span class="pulse-dot bg-green-400" id="status-dot"></span>
+      <span class="text-lg font-bold text-white">Prisma RPA</span>
+      <span class="text-xs text-slate-500 hidden sm:inline">&mdash; Painel de Monitoramento</span>
+    </div>
+    <div class="flex items-center gap-4">
+      <span class="text-xs text-slate-500">Atualizado: <span id="last-refresh">&mdash;</span></span>
+      <button onclick="refresh()" class="px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs">&uarr; Atualizar</button>
+      <label class="flex items-center gap-2 text-xs text-slate-400">
+        <input type="checkbox" id="auto-refresh" checked class="accent-blue-500">
+        Auto (5s)
+      </label>
+      <a href="/logout" title="Sair do painel"
+         class="px-3 py-1 rounded text-xs font-bold transition-colors"
+         style="background:#1e293b;border:1px solid #475569;color:#94a3b8"
+         onmouseover="this.style.color='#f87171'" onmouseout="this.style.color='#94a3b8'">&#x2715; Sair</a>
+    </div>
+  </nav>
+
+  <div class="max-w-screen-2xl mx-auto px-4 py-6 space-y-6">
+
+    <!-- METRIC CARDS -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3" id="metrics">
+      <!-- filled by JS -->
+    </div>
+
+    <!-- POOL + REDIS STATUS -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="card rounded-xl p-4">
+        <h2 class="text-xs text-slate-500 uppercase tracking-widest mb-3">Pool de Drivers Chrome</h2>
+        <div id="pool-status" class="flex items-center gap-3 flex-wrap">
+          <!-- filled by JS -->
+        </div>
+      </div>
+      <div class="card rounded-xl p-4">
+        <h2 class="text-xs text-slate-500 uppercase tracking-widest mb-3">Infraestrutura</h2>
+        <div id="infra-status" class="space-y-2">
+          <!-- filled by JS -->
+        </div>
+      </div>
+    </div>
+
+    <!-- ERROS RECENTES -->
+    <div class="card rounded-xl p-4" id="error-section" style="display:none">
+      <h2 class="text-xs text-slate-500 uppercase tracking-widest mb-3">⚠ Erros Recorrentes</h2>
+      <table class="w-full text-xs">
+        <thead><tr class="text-slate-500 border-b border-slate-700">
+          <th class="text-left py-1 pr-4">Mensagem</th>
+          <th class="text-right py-1 pr-4 whitespace-nowrap">Ocorrências</th>
+          <th class="text-right py-1 whitespace-nowrap">Última vez</th>
+        </tr></thead>
+        <tbody id="error-tbody"></tbody>
+      </table>
+    </div>
+
+    <!-- ═══════════════════════════════════════════════════════
+         CRIAÇÃO DE BANCO DE DADOS
+         ═══════════════════════════════════════════════════════ -->
+    <div class="card rounded-xl p-5" id="batch-section">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-sm font-bold text-white flex items-center gap-2">
+          🗄️ Criação de Banco de Dados
+        </h2>
+        <button onclick="toggleBatch()" class="text-xs text-slate-500 hover:text-white" id="batch-toggle-btn">▼ Recolher</button>
+      </div>
+
+      <div id="batch-body">
+        <!-- FORM -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+
+          <!-- Coluna 1: Gerador de Placas -->
+          <div class="space-y-3">
+            <div>
+              <label class="text-xs text-slate-400 block mb-1">Nome do Lote</label>
+              <input id="batch-nome" type="text" placeholder="Ex.: Campanha Março 2026"
+                class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+            </div>
+
+            <!-- Controles do gerador -->
+            <div class="p-4 rounded-lg space-y-3" style="background:#0f172a;border:1px solid #1e3a5f">
+              <h3 class="text-xs font-bold text-emerald-400 mb-1">&#x1f3b2; Gerador de Placas Aleatórias</h3>
+
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="text-xs text-slate-500 block mb-1">Quantidade</label>
+                  <input id="gen-qty" type="number" min="1" max="5000" value="100"
+                    class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500" />
+                </div>
+                <div>
+                  <label class="text-xs text-slate-500 block mb-1">Formato</label>
+                  <select id="gen-format"
+                    class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
+                    <option value="both" selected>Ambos</option>
+                    <option value="old">Antigo &mdash; ABC1234</option>
+                    <option value="mercosul">Mercosul &mdash; ABC1D23</option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-2">
+                <input type="checkbox" id="gen-dedup" checked class="accent-emerald-500">
+                <label for="gen-dedup" class="text-xs text-slate-400">Excluir placas já no banco (consultadas com sucesso)</label>
+              </div>
+
+              <button onclick="gerarPlacas()" id="btn-gerar"
+                class="w-full py-2 rounded-lg text-sm font-bold transition-colors"
+                style="background:#065f46;color:#6ee7b7;border:1px solid #059669">
+                &#x1f3b2; Gerar Placas
+              </button>
+            </div>
+
+            <!-- Preview das placas geradas -->
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-xs text-slate-500">Placas geradas: <span id="batch-count" class="text-white font-bold">0</span></span>
+                <button onclick="clearPlacas()" class="text-xs text-slate-600 hover:text-red-400">&#x2715; Limpar</button>
+              </div>
+              <div id="plate-preview" class="bg-slate-800 border border-slate-700 rounded-lg p-3 max-h-44 overflow-auto font-mono text-xs text-slate-300 leading-5">
+                <span class="text-slate-600 italic">Nenhuma placa gerada ainda.</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Coluna 2: Ações -->
+          <div class="space-y-3">
+            <div class="p-4 rounded-lg" style="background:#0f172a;border:1px solid #1e3a5f">
+              <h3 class="text-xs font-bold text-blue-400 mb-3">&#x25b6; Executar Agora</h3>
+              <p class="text-xs text-slate-500 mb-3">Usa todos os workers disponíveis do pool simultaneamente. Gere as placas e clique para iniciar.</p>
+              <button onclick="criarManual()" id="btn-manual"
+                class="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold transition-colors">
+                &#x25b6; Criar Manual
+              </button>
+            </div>
+
+            <div class="p-4 rounded-lg" style="background:#0f172a;border:1px solid #1e3a5f">
+              <h3 class="text-xs font-bold text-purple-400 mb-3">&#x1f5d3;&#xfe0f; Agendar Execução</h3>
+              <p class="text-xs text-slate-500 mb-2">Gere as placas e defina data/hora para execução automática.</p>
+              <input id="batch-schedule-dt" type="datetime-local"
+                class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-500 mb-3" />
+              <button onclick="criarAgendado()" id="btn-schedule"
+                class="w-full py-2.5 rounded-lg bg-purple-700 hover:bg-purple-600 text-white text-sm font-bold transition-colors">
+                &#x1f5d3;&#xfe0f; Criar Agendado
+              </button>
+            </div>
+
+            <!-- Resumo rápido do que será processado -->
+            <div class="p-3 rounded-lg text-xs space-y-1" style="background:#0f172a;border:1px solid #334155">
+              <div class="text-slate-500 uppercase tracking-widest mb-1">Resumo</div>
+              <div class="flex justify-between"><span class="text-slate-400">Placas prontas</span><span id="summary-total" class="text-white font-bold">0</span></div>
+              <div class="flex justify-between"><span class="text-slate-400">Formato</span><span id="summary-format" class="text-slate-300">—</span></div>
+              <div class="flex justify-between"><span class="text-slate-400">Workers disponíveis</span><span id="summary-pool" class="text-green-400">—</span></div>
+              <div class="flex justify-between"><span class="text-slate-400">Tempo estimado</span><span id="summary-eta" class="text-yellow-400">—</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- TOAST -->
+        <div id="batch-toast" class="hidden mb-4 px-4 py-3 rounded-lg text-sm font-bold"></div>
+
+        <!-- LOTES ATIVOS / HISTÓRICO -->
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-xs text-slate-500 uppercase tracking-widest">Lotes Criados</h3>
+            <button onclick="loadBatchJobs()" class="text-xs text-slate-500 hover:text-white">↺ Atualizar</button>
+          </div>
+          <div class="overflow-auto max-h-72">
+            <table class="w-full text-xs border-collapse">
+              <thead class="sticky top-0" style="background:#1e293b">
+                <tr class="text-slate-500 border-b border-slate-700">
+                  <th class="text-left py-2 pr-3">ID</th>
+                  <th class="text-left py-2 pr-3">Nome</th>
+                  <th class="text-left py-2 pr-3">Status</th>
+                  <th class="text-left py-2 pr-3">Progresso</th>
+                  <th class="text-right py-2 pr-3 whitespace-nowrap">✅ OK</th>
+                  <th class="text-right py-2 pr-3 whitespace-nowrap">🔵 N/E</th>
+                  <th class="text-right py-2 pr-3 whitespace-nowrap">❌ Erro</th>
+                  <th class="text-right py-2 pr-3 whitespace-nowrap">Agendado</th>
+                  <th class="text-right py-2">Ação</th>
+                </tr>
+              </thead>
+              <tbody id="batch-tbody">
+                <tr><td colspan="9" class="text-center text-slate-600 py-6">Nenhum lote criado ainda.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- QUERIES TABLE + LOG PANEL -->
+    <div class="flex flex-col lg:flex-row gap-4">
+
+      <!-- Table -->
+      <div class="card rounded-xl p-4 flex-1 min-w-0">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-xs text-slate-500 uppercase tracking-widest">Consultas Recentes</h2>
+          <span class="text-xs text-slate-500" id="queries-count">0 registros</span>
+        </div>
+        <div class="overflow-auto max-h-[60vh]">
+          <table class="w-full text-xs border-collapse">
+            <thead class="sticky top-0" style="background:#1e293b">
+              <tr class="text-slate-500 border-b border-slate-700">
+                <th class="text-left py-2 pr-3 whitespace-nowrap">Hor&aacute;rio</th>
+                <th class="text-left py-2 pr-3">Placa</th>
+                <th class="text-left py-2 pr-3">Status</th>
+                <th class="text-left py-2 pr-3">Origem</th>
+                <th class="text-right py-2 pr-3 whitespace-nowrap">Dura&ccedil;&atilde;o</th>
+                <th class="text-center py-2 pr-3">Tent.</th>
+                <th class="text-left py-2">Erro / Dados</th>
+              </tr>
+            </thead>
+            <tbody id="queries-tbody">
+              <tr><td colspan="7" class="text-center text-slate-600 py-8">Carregando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Log Panel -->
+      <div class="card rounded-xl p-4 w-full lg:w-96 flex-shrink-0" id="log-panel">
+        <h2 class="text-xs text-slate-500 uppercase tracking-widest mb-1">Logs da Consulta</h2>
+        <p class="text-xs text-slate-600 mb-3" id="log-panel-title">Clique em uma linha para ver os logs</p>
+        <div id="log-entries" class="space-y-1 text-xs overflow-auto max-h-[60vh]">
+          <p class="text-slate-600 italic">—</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+<script>
+const API = '';  // mesmo origin
+
+let _autoInterval = null;
+let _selectedReqId = null;
+
+// ----------------------------------------------------------------- helpers
+function fmt(utcStr) {
+  if (!utcStr) return '—';
+  const d = new Date(utcStr);
+  return d.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo',
+    day:'2-digit', month:'2-digit', year:'2-digit',
+    hour:'2-digit', minute:'2-digit', second:'2-digit' });
+}
+function dur(s) {
+  if (s == null) return '—';
+  return s.toFixed(1) + 's';
+}
+function badge(status, cached) {
+  if (cached) return `<span class="badge-cache px-2 py-0.5 rounded-full text-xs">cache</span>`;
+  const map   = { ok:'badge-ok', error:'badge-error', invalid_data:'badge-invalid', pending:'badge-pending', not_found:'badge-notfound' };
+  const label = { ok:'OK', error:'ERRO', invalid_data:'INVÁLIDO', pending:'AGUARDANDO', not_found:'N/A' };
+  const cls = map[status] || 'badge-pending';
+  return `<span class="${cls} px-2 py-0.5 rounded-full text-xs">${label[status] || status}</span>`;
+}
+
+// ----------------------------------------------------------------- fetch calls
+async function fetchJSON(url) {
+  const r = await fetch(API + url);
+  if (!r.ok) throw new Error(r.statusText);
+  return r.json();
+}
+
+// ----------------------------------------------------------------- render metrics
+function renderMetrics(stats, health) {
+  const cards = [
+    { label:'Total',       value: stats.total      ?? 0, color:'text-white' },
+    { label:'Bem-sucedidas', value: stats.ok        ?? 0, color:'text-green-400' },
+    { label:'Erros',       value: (stats.errors ?? 0) + (stats.invalid ?? 0), color:'text-red-400' },
+    { label:'Do Cache',    value: stats.from_cache  ?? 0, color:'text-purple-400' },
+    { label:'Duração Média', value: stats.avg_duration_s != null ? stats.avg_duration_s + 's' : '—', color:'text-blue-400' },
+    { label:'Placas Únicas', value: stats.unique_placas ?? 0, color:'text-cyan-400' },
+    { label:'No Banco',      value: stats.db_placas       ?? 0, color:'text-emerald-400' },
+  ];
+  document.getElementById('metrics').innerHTML = cards.map(c => `
+    <div class="card rounded-xl p-4 text-center">
+      <div class="text-2xl font-bold ${c.color}">${c.value}</div>
+      <div class="text-xs text-slate-500 mt-1">${c.label}</div>
+    </div>`).join('');
+}
+
+// ----------------------------------------------------------------- render pool
+function renderPool(health) {
+  const size = health.pool_size || 0;
+  const avail = health.pool_available || 0;
+  const busy = size - avail;
+  let dots = '';
+  for (let i = 0; i < size; i++) {
+    const isBusy = i < busy;
+    dots += `<div class="flex flex-col items-center gap-1">
+      <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold
+        ${isBusy ? 'bg-orange-500 text-white' : 'bg-green-600 text-white'}">
+        ${isBusy ? '⚙' : '✓'}
+      </div>
+      <span class="text-xs ${isBusy ? 'text-orange-400':'text-green-400'}">${isBusy ? 'ocupado':'livre'}</span>
+    </div>`;
+  }
+  document.getElementById('pool-status').innerHTML = dots ||
+    '<span class="text-slate-600">Pool não inicializado</span>';
+
+  // atualiza summary-pool para uso no gerador de placas
+  const spEl = document.getElementById('summary-pool');
+  if (spEl) { spEl.dataset.avail = avail; spEl.textContent = avail + ' workers'; }
+
+  // status dot
+  const dot = document.getElementById('status-dot');
+  if (health.status === 'ok') {
+    dot.className = 'pulse-dot bg-green-400';
+  } else {
+    dot.className = 'pulse-dot bg-red-400';
+  }
+}
+
+// ----------------------------------------------------------------- render infra
+function renderInfra(health) {
+  const redis = health.redis || 'disabled';
+  const redisColor = redis === 'connected' ? 'text-green-400' :
+                     redis === 'disabled'  ? 'text-slate-500' : 'text-red-400';
+  const redisLabel = redis === 'connected' ? '● Conectado' :
+                     redis === 'disabled'  ? '○ Desabilitado' : '✕ Erro';
+  document.getElementById('infra-status').innerHTML = `
+    <div class="flex justify-between">
+      <span class="text-slate-500">Redis Cache</span>
+      <span class="${redisColor} font-bold">${redisLabel}</span>
+    </div>
+    <div class="flex justify-between">
+      <span class="text-slate-500">TTL Cache</span>
+      <span class="text-white">${health.cache_ttl_s ? health.cache_ttl_s + 's' : '—'}</span>
+    </div>
+    <div class="flex justify-between">
+      <span class="text-slate-500">API</span>
+      <span class="text-green-400 font-bold">● Online</span>
+    </div>`;
+}
+
+// ----------------------------------------------------------------- render errors
+function renderErrors(errors) {
+  const section = document.getElementById('error-section');
+  if (!errors || errors.length === 0) { section.style.display = 'none'; return; }
+  section.style.display = '';
+  document.getElementById('error-tbody').innerHTML = errors.map(e => `
+    <tr class="border-b border-slate-800 hover:bg-slate-800">
+      <td class="py-2 pr-4 text-red-300">${e.error_msg}</td>
+      <td class="py-2 pr-4 text-right text-orange-400 font-bold">${e.count}</td>
+      <td class="py-2 text-right text-slate-500">${fmt(e.last_seen)}</td>
+    </tr>`).join('');
+}
+
+// ----------------------------------------------------------------- render queries
+function renderQueries(queries) {
+  document.getElementById('queries-count').textContent = queries.length + ' registros';
+  if (!queries.length) {
+    document.getElementById('queries-tbody').innerHTML =
+      '<tr><td colspan="7" class="text-center text-slate-600 py-8">Nenhuma consulta registrada ainda.</td></tr>';
+    return;
+  }
+  const rowClass = { ok:'row-ok', error:'row-error', invalid_data:'row-invalid', pending:'row-pending' };
+  document.getElementById('queries-tbody').innerHTML = queries.map(q => {
+    const isCache   = !!q.cached;
+    const isBatch   = q.req_id && q.req_id.startsWith('b');
+    const rc        = isCache ? '' : (rowClass[q.status] || 'row-pending');
+    const isSelected = q.req_id === _selectedReqId ? 'row-selected' : '';
+    const truncErr  = q.error_msg ? q.error_msg.substring(0, 60) + (q.error_msg.length > 60 ? '\u2026' : '') : '';
+    const dadosStr  = q.dados ? (() => {
+      try {
+        const d = JSON.parse(q.dados);
+        return `<span class="text-green-500">${d.veiculo || ''}</span>`;
+      } catch { return ''; }
+    })() : '';
+    const origemBadge = isBatch
+      ? `<span style="background:#312e8122;color:#a78bfa;border:1px solid #312e8155" class="px-2 py-0.5 rounded-full text-xs">lote</span>`
+      : `<span style="background:#0f4a3a22;color:#34d399;border:1px solid #0f4a3a55" class="px-2 py-0.5 rounded-full text-xs">manual</span>`;
+    return `<tr class="hoverable border-b border-slate-800 ${rc} ${isSelected}"
+              onclick="selectQuery('${q.req_id}', '${q.placa}', this)">
+      <td class="py-2 pr-3 text-slate-400 whitespace-nowrap">${fmt(q.created_at)}</td>
+      <td class="py-2 pr-3 text-white font-bold">${q.placa}</td>
+      <td class="py-2 pr-3">${badge(q.status, isCache)}</td>
+      <td class="py-2 pr-3">${origemBadge}</td>
+      <td class="py-2 pr-3 text-right whitespace-nowrap ${q.duration_s > 60 ? 'text-orange-400' : 'text-slate-300'}">${dur(q.duration_s)}</td>
+      <td class="py-2 pr-3 text-center text-slate-400">${q.attempts || '\u2014'}</td>
+      <td class="py-2 text-slate-400">${truncErr || dadosStr}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ----------------------------------------------------------------- log panel
+async function selectQuery(reqId, placa, row) {
+  // deselect previous
+  document.querySelectorAll('.row-selected').forEach(r => r.classList.remove('row-selected'));
+  row.classList.add('row-selected');
+  _selectedReqId = reqId;
+
+  document.getElementById('log-panel-title').textContent = `Placa ${placa} · req ${reqId}`;
+  document.getElementById('log-entries').innerHTML = '<p class="text-slate-600">Carregando...</p>';
+
+  try {
+    const logs = await fetchJSON(`/api/queries/${reqId}/logs`);
+    if (!logs.length) {
+      document.getElementById('log-entries').innerHTML = '<p class="text-slate-600 italic">Sem logs registrados.</p>';
+      return;
+    }
+    document.getElementById('log-entries').innerHTML = logs.map(l => `
+      <div class="flex gap-2 py-0.5 border-b border-slate-800">
+        <span class="whitespace-nowrap text-slate-600">${fmt(l.created_at).split(' ')[1]}</span>
+        <span class="log-${l.level} font-bold w-16 flex-shrink-0">${l.level}</span>
+        <span class="text-slate-300 break-all">${l.message}</span>
+      </div>`).join('');
+  } catch (e) {
+    document.getElementById('log-entries').innerHTML = `<p class="text-red-400">Erro: ${e.message}</p>`;
+  }
+}
+
+// ----------------------------------------------------------------- plate generator
+const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const DIGITS  = '0123456789';
+let _generatedPlates = [];
+let _knownOkPlates   = new Set();
+
+function rndChar(set) { return set[Math.floor(Math.random() * set.length)]; }
+function genOld()     { return rndChar(LETTERS)+rndChar(LETTERS)+rndChar(LETTERS)+rndChar(DIGITS)+rndChar(DIGITS)+rndChar(DIGITS)+rndChar(DIGITS); }
+function genMercosul(){ return rndChar(LETTERS)+rndChar(LETTERS)+rndChar(LETTERS)+rndChar(DIGITS)+rndChar(LETTERS)+rndChar(DIGITS)+rndChar(DIGITS); }
+
+function updateSummary(plates) {
+  document.getElementById('summary-total').textContent = plates.length;
+  const fmt = document.getElementById('gen-format').value;
+  document.getElementById('summary-format').textContent = { both:'Ambos', old:'Antigo', mercosul:'Mercosul' }[fmt];
+  const poolEl = document.getElementById('summary-pool');
+  const avail  = parseInt(poolEl.dataset.avail || '10');
+  poolEl.textContent = avail + ' workers';
+  const etaS = Math.ceil(plates.length * 20 / Math.max(1, avail));
+  const m = Math.floor(etaS / 60), s = etaS % 60;
+  document.getElementById('summary-eta').textContent = m > 0 ? `~${m}min ${s}s` : `~${etaS}s`;
+}
+
+async function gerarPlacas() {
+  const qty   = Math.max(1, Math.min(5000, parseInt(document.getElementById('gen-qty').value) || 100));
+  const fmt   = document.getElementById('gen-format').value;
+  const dedup = document.getElementById('gen-dedup').checked;
+
+  if (dedup) {
+    try {
+      const db = await fetchJSON('/batch/database?limit=50000');
+      _knownOkPlates = new Set((db.items || db).map(r => r.placa));
+    } catch(e) { _knownOkPlates = new Set(); }
+  } else {
+    _knownOkPlates = new Set();
+  }
+
+  const btn = document.getElementById('btn-gerar');
+  btn.disabled = true; btn.innerHTML = 'Gerando...';
+
+  const seen = new Set(_knownOkPlates);
+  const plates = [];
+  let attempts = 0;
+  while (plates.length < qty && attempts < qty * 20) {
+    attempts++;
+    let p;
+    if (fmt === 'old')           p = genOld();
+    else if (fmt === 'mercosul') p = genMercosul();
+    else                         p = Math.random() < 0.5 ? genOld() : genMercosul();
+    if (!seen.has(p)) { seen.add(p); plates.push(p); }
+  }
+
+  _generatedPlates = plates;
+  document.getElementById('batch-count').textContent = plates.length;
+
+  const preview = document.getElementById('plate-preview');
+  if (!plates.length) {
+    preview.innerHTML = '<span class="text-red-400">Não foi possível gerar placas (todas já estão no banco).</span>';
+  } else {
+    const perCol = Math.ceil(plates.length / 3);
+    const cols = [0,1,2].map(i => {
+      const sl = plates.slice(i*perCol, (i+1)*perCol);
+      return sl.length ? `<div>${sl.map(p=>`<div class="text-emerald-300">${p}</div>`).join('')}</div>` : '';
+    }).filter(Boolean);
+    preview.innerHTML = `<div class="grid gap-4" style="grid-template-columns:repeat(${cols.length},1fr)">${cols.join('')}</div>`;
+  }
+
+  updateSummary(plates);
+  btn.disabled = false; btn.innerHTML = '&#x1f3b2; Gerar Placas';
+}
+
+function clearPlacas() {
+  _generatedPlates = [];
+  document.getElementById('batch-count').textContent = '0';
+  document.getElementById('plate-preview').innerHTML = '<span class="text-slate-600 italic">Nenhuma placa gerada ainda.</span>';
+  updateSummary([]);
+}
+
+// ----------------------------------------------------------------- batch helpers
+function toggleBatch() {
+  const body = document.getElementById('batch-body');
+  const btn  = document.getElementById('batch-toggle-btn');
+  const hidden = body.style.display === 'none';
+  body.style.display = hidden ? '' : 'none';
+  btn.textContent = hidden ? '▼ Recolher' : '▶ Expandir';
+}
+
+function showBatchToast(msg, ok = true) {
+  const t = document.getElementById('batch-toast');
+  t.className = `mb-4 px-4 py-3 rounded-lg text-sm font-bold ${ok ? 'bg-green-900 text-green-300 border border-green-700' : 'bg-red-900 text-red-300 border border-red-700'}`;
+  t.textContent = msg;
+  t.classList.remove('hidden');
+  setTimeout(() => t.classList.add('hidden'), 5000);
+}
+
+// ----------------------------------------------------------------- batch actions
+async function criarManual() {
+  if (!_generatedPlates.length) { showBatchToast('Gere as placas primeiro clicando em "Gerar Placas".', false); return; }
+  const nome = document.getElementById('batch-nome').value.trim() || 'Lote Manual';
+  const btn  = document.getElementById('btn-manual');
+  btn.disabled = true; btn.textContent = 'Enviando...';
+  try {
+    const r = await fetch('/batch/manual', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ placas: _generatedPlates, nome })
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || r.statusText);
+    showBatchToast(`✅ Lote ${data.job_id} criado com ${data.total} placas — executando agora!`);
+    clearPlacas();
+    setTimeout(loadBatchJobs, 1000);
+  } catch(e) {
+    showBatchToast('Erro: ' + e.message, false);
+  } finally {
+    btn.disabled = false; btn.innerHTML = '&#x25b6; Criar Manual';
+  }
+}
+
+async function criarAgendado() {
+  if (!_generatedPlates.length) { showBatchToast('Gere as placas primeiro clicando em "Gerar Placas".', false); return; }
+  const dtLocal = document.getElementById('batch-schedule-dt').value;
+  if (!dtLocal) { showBatchToast('Selecione a data/hora para agendamento.', false); return; }
+  const nome         = document.getElementById('batch-nome').value.trim() || 'Lote Agendado';
+  const scheduled_at = new Date(dtLocal).toISOString();
+  const btn = document.getElementById('btn-schedule');
+  btn.disabled = true; btn.textContent = 'Agendando...';
+  try {
+    const r = await fetch('/batch/schedule', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ placas: _generatedPlates, nome, scheduled_at })
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || r.statusText);
+    showBatchToast(`🗓️ Lote ${data.job_id} agendado com ${data.total} placas para ${new Date(data.scheduled_at).toLocaleString('pt-BR')}`);
+    clearPlacas();
+    setTimeout(loadBatchJobs, 500);
+  } catch(e) {
+    showBatchToast('Erro: ' + e.message, false);
+  } finally {
+    btn.disabled = false; btn.innerHTML = '&#x1f5d3;&#xfe0f; Criar Agendado';
+  }
+}
+
+async function cancelJob(job_id) {
+  if (!confirm(`Cancelar lote ${job_id}?`)) return;
+  try {
+    const r = await fetch(`/batch/jobs/${job_id}`, { method: 'DELETE' });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || r.statusText);
+    showBatchToast(`Lote ${job_id} cancelado.`);
+    loadBatchJobs();
+  } catch(e) {
+    showBatchToast('Erro: ' + e.message, false);
+  }
+}
+
+async function loadBatchJobs() {
+  try {
+    const jobs = await fetchJSON('/batch/jobs?limit=30');
+    const tbody = document.getElementById('batch-tbody');
+    if (!jobs.length) {
+      tbody.innerHTML = '<tr><td colspan="9" class="text-center text-slate-600 py-6">Nenhum lote criado ainda.</td></tr>';
+      return;
+    }
+    const statusLabels = {
+      executando: { cls:'bs-executando', icon:'⚙️' },
+      concluido:  { cls:'bs-concluido',  icon:'✅' },
+      pendente:   { cls:'bs-pendente',   icon:'⏳' },
+      aguardando: { cls:'bs-aguardando', icon:'▶' },
+      cancelado:  { cls:'bs-cancelado',  icon:'✕' },
+    };
+    tbody.innerHTML = jobs.map(j => {
+      const pct = j.total > 0 ? Math.round(j.done / j.total * 100) : 0;
+      const barColor = j.status === 'concluido' ? 'bg-green-500' : j.status === 'cancelado' ? 'bg-slate-500' : 'bg-yellow-500';
+      const sl = statusLabels[j.status] || { cls:'bs-pendente', icon:'?' };
+      const isActive = ['executando','aguardando'].includes(j.status);
+      const canCancel = ['executando','aguardando','pendente'].includes(j.status);
+      return `<tr class="border-b border-slate-800 hover:bg-slate-800 ${isActive ? 'animate-pulse-subtle' : ''}">
+        <td class="py-2 pr-3 text-slate-400 font-mono">${j.job_id}</td>
+        <td class="py-2 pr-3 text-white max-w-[120px] truncate" title="${j.nome}">${j.nome}</td>
+        <td class="py-2 pr-3"><span class="${sl.cls} px-2 py-0.5 rounded-full text-xs">${sl.icon} ${j.status}</span></td>
+        <td class="py-2 pr-3 min-w-[120px]">
+          <div class="flex items-center gap-2">
+            <div class="progress-bar-track flex-1">
+              <div class="progress-bar-fill ${barColor}" style="width:${pct}%"></div>
+            </div>
+            <span class="text-slate-400 whitespace-nowrap">${j.done}/${j.total}</span>
+          </div>
+        </td>
+        <td class="py-2 pr-3 text-right text-green-400 font-bold">${j.ok || 0}</td>
+        <td class="py-2 pr-3 text-right text-sky-400">${j.not_found || 0}</td>
+        <td class="py-2 pr-3 text-right text-red-400">${j.errors || 0}</td>
+        <td class="py-2 pr-3 text-right text-slate-500 whitespace-nowrap">${j.scheduled_at ? fmt(j.scheduled_at) : '—'}</td>
+        <td class="py-2 text-right">
+          ${canCancel ? `<button onclick="cancelJob('${j.job_id}')" class="text-xs text-red-500 hover:text-red-300">✕</button>` : ''}
+        </td>
+      </tr>`;
+    }).join('');
+  } catch(e) {
+    console.error('Erro batch jobs:', e);
+  }
+}
+
+// ----------------------------------------------------------------- init
+// ----------------------------------------------------------------- main refresh
+async function refresh() {
+  document.getElementById('last-refresh').textContent = new Date().toLocaleTimeString('pt-BR');
+  try {
+    const [health, stats, errors, queries] = await Promise.all([
+      fetchJSON('/health'),
+      fetchJSON('/api/stats'),
+      fetchJSON('/api/errors'),
+      fetchJSON('/api/queries?limit=500'),
+    ]);
+    renderMetrics(stats, health);
+    renderPool(health);
+    renderInfra(health);
+    renderErrors(errors);
+    renderQueries(queries);
+
+    // re-load log panel se estava selecionado
+    if (_selectedReqId) {
+      const q = queries.find(r => r.req_id === _selectedReqId);
+      if (q) {
+        const row = document.querySelector(`tr[onclick*="${_selectedReqId}"]`);
+        if (row) row.classList.add('row-selected');
+      }
+    }
+  } catch (e) {
+    document.getElementById('status-dot').className = 'pulse-dot bg-red-400';
+    console.error('Refresh error:', e);
+  }
+  // Atualiza lotes se hover algum em execução
+  const rows = document.querySelectorAll('#batch-tbody tr');
+  const hasActive = Array.from(rows).some(r => r.innerHTML.includes('executando') || r.innerHTML.includes('aguardando'));
+  if (hasActive) loadBatchJobs();
+}
+
+// ----------------------------------------------------------------- auto-refresh
+function setupAutoRefresh() {
+  const cb = document.getElementById('auto-refresh');
+  function toggle() {
+    if (_autoInterval) { clearInterval(_autoInterval); _autoInterval = null; }
+    if (cb.checked) { _autoInterval = setInterval(refresh, 5000); }
+  }
+  cb.addEventListener('change', toggle);
+  toggle();
+}
+
+// ----------------------------------------------------------------- init
+refresh();
+loadBatchJobs();
+setupAutoRefresh();
+
+// Seta datetime mínimo para agendamento (agora + 5min)
+const dtInput = document.getElementById('batch-schedule-dt');
+const now = new Date(Date.now() + 5 * 60000);
+dtInput.min = now.toISOString().slice(0,16);
+dtInput.value = now.toISOString().slice(0,16);
+</script>
+</body>
+</html>

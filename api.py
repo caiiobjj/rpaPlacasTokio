@@ -1,48 +1,55 @@
-"""
+﻿"""
 TokioMarine RPA – API de consulta de placas.
+v3 – Pool de drivers paralelos + cache Redis.
 
-Otimização de sessão:
-  - Um único driver Chrome é mantido vivo entre requisições (singleton).
-  - O login e o passo portal-corretor são feitos apenas na primeira chamada
-    ou quando a sessão expira.
-  - Requisições subsequentes reutilizam a sessão via reload do iframe (~1.3 s),
-    pulando o login (~5-10 s) e o reload Angular (~5 s).
-  - Um threading.Lock() serializa as requisições (Selenium é single-thread).
+Arquitetura:
+  - DriverPool  : N instâncias Chrome rodando em paralelo (padrão: POOL_SIZE=3).
+                  Cada requisição faz checkout de um driver livre, executa e
+                  devolve. Se todos estiverem ocupados, a fila aguarda (timeout 5min).
+  - Redis Cache : resultado de cada placa é armazenado por CACHE_TTL segundos.
+                  Consultas repetidas retornam instantaneamente sem acionar o Selenium.
+                  Cache é opcional — se Redis não estiver disponível a RPA roda sem ele.
+  - Retry       : MAX_RETRIES tentativas por consulta.
+                  Dados inválidos (null/0,00) recarregam o iframe sem destruir o driver.
+                  Erros de sistema destroem o driver (pool recria automaticamente).
 
-Segurança:
-  - Se API_KEY estiver definida no .env, todos os endpoints requerem o header
-    X-API-Key com o valor correto.
+Endpoints:
+  GET /placa/{placa}          → consulta síncrona (backward-compatible)
+  GET /health                 → status do pool e do Redis
+  GET /pool/status            → detalhes do pool
+  GET /session/reset          → força recreação de todos os drivers
+  GET /cache/clear/{placa}    → remove uma placa do cache
+  GET /cache/clear            → limpa todo o cache
 """
 
-import os
-import subprocess
-import threading
+import asyncio
+import json
 import logging
+import os
 import traceback
-import time as _time
 import uuid
-from typing import Optional
+from typing import List, Optional
+from urllib.parse import quote as _urlquote
+
+import time as _time
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger("rpa_api")
 
-from fastapi import FastAPI, HTTPException, Query, Header
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, Query, Header, BackgroundTasks, Request, Response
+from fastapi.responses import JSONResponse, HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+from pydantic import BaseModel
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from tokio_automation import (
-    build_driver,
-    login,
-    go_to_nova_cotacao,
-    is_session_alive,
-    try_reuse_form,
-    reload_cotador_iframe,
-    query_plate,
-)
-from config import MAX_RETRIES
-
-logger = logging.getLogger("rpa_api")
+import auth as _auth
+from tokio_automation import query_plate, PlacaNaoEncontradaError, DadosVaziosError
+from driver_pool import DriverPool
+from config import MAX_RETRIES, POOL_SIZE, REDIS_URL, CACHE_TTL, get_headless
+import database
 
 # ---------------------------------------------------------------------------
 # API Key (opcional)
@@ -51,164 +58,589 @@ _API_KEY = os.getenv("API_KEY", "").strip()
 
 
 def _check_api_key(x_api_key: Optional[str]) -> None:
-    """Valida X-API-Key se API_KEY estiver configurada."""
     if not _API_KEY:
-        return  # autenticação desabilitada
+        return
     if x_api_key != _API_KEY:
         raise HTTPException(status_code=401, detail="X-API-Key inválida ou ausente.")
 
 
-app = FastAPI(title="TokioMarine RPA API", version="1.0.0")
+# ---------------------------------------------------------------------------
+# Pool de drivers (inicializado no startup)
+# ---------------------------------------------------------------------------
+_pool: Optional[DriverPool] = None
+
 
 # ---------------------------------------------------------------------------
-# Singleton de sessão
+# Cache Redis (opcional)
 # ---------------------------------------------------------------------------
-_driver = None
-_driver_ready = False   # True quando já passou pelo go_to_nova_cotacao completo
-_driver_headless = True
-_session_lock = threading.Lock()
+_redis = None
 
 
-def _destroy_driver() -> None:
-    """Fecha o driver atual e mata processos Chrome orphãos."""
-    global _driver, _driver_ready
+def _init_redis() -> None:
+    global _redis
     try:
-        if _driver is not None:
-            _driver.quit()
-    except Exception:
-        pass
-    # Mata processos Chrome que ficaram órfãos após falha/crash
+        import redis as _redis_lib
+        client = _redis_lib.from_url(REDIS_URL, socket_connect_timeout=3, decode_responses=True)
+        client.ping()
+        _redis = client
+        logger.info(f"[cache] Redis conectado: {REDIS_URL}")
+    except Exception as e:
+        _redis = None
+        logger.warning(f"[cache] Redis indisponível ({e}) — cache desabilitado, RPA funciona normalmente.")
+
+
+def _cache_get(placa: str) -> Optional[dict]:
+    if _redis is None:
+        return None
     try:
-        subprocess.run(['pkill', '-f', 'google-chrome'], capture_output=True, timeout=5)
+        raw = _redis.get(f"placa:{placa.upper()}")
+        if raw:
+            logger.info(f"[cache] HIT para placa '{placa}'")
+            return json.loads(raw)
+    except Exception as e:
+        logger.warning(f"[cache] Erro ao ler cache: {e}")
+    return None
+
+
+def _cache_set(placa: str, dados: dict) -> None:
+    if _redis is None:
+        return
+    try:
+        _redis.setex(f"placa:{placa.upper()}", CACHE_TTL, json.dumps(dados))
+        logger.info(f"[cache] Armazenado '{placa}' por {CACHE_TTL}s.")
+    except Exception as e:
+        logger.warning(f"[cache] Erro ao gravar cache: {e}")
+
+
+def _cache_delete(placa: str) -> bool:
+    if _redis is None:
+        return False
+    try:
+        deleted = _redis.delete(f"placa:{placa.upper()}")
+        return deleted > 0
     except Exception:
-        pass
-    _driver = None
-    _driver_ready = False
+        return False
 
 
-def _ensure_session(headless: bool = True) -> None:
-    """
-    Garante que _driver exista, esteja vivo e já tenha feito a navegação
-    inicial (go_to_nova_cotacao). Caso a sessão tenha expirado, recria tudo.
-    Deve ser chamado DENTRO do _session_lock.
-    """
-    global _driver, _driver_ready, _driver_headless
-
-    # Se o modo headless mudou, destruir e recriar
-    if _driver is not None and headless != _driver_headless:
-        logger.info("Modo headless alterado — recriando driver.")
-        _destroy_driver()
-
-    # Verifica se o driver ainda responde
-    if _driver is not None and not is_session_alive(_driver):
-        logger.info("Sessão expirada ou driver morto — recriando.")
-        _destroy_driver()
-
-    if _driver is None:
-        logger.info("Criando novo driver e fazendo login...")
-        t0 = _time.time()
-        _driver = build_driver(headless=headless)
-        _driver_headless = headless
-        logger.info(f"  driver criado em {_time.time()-t0:.1f}s")
-        t0 = _time.time()
-        login(_driver)
-        logger.info(f"  login em {_time.time()-t0:.1f}s")
-        t0 = _time.time()
-        go_to_nova_cotacao(_driver)
-        logger.info(f"  go_to_nova_cotacao em {_time.time()-t0:.1f}s")
-        _driver_ready = True
-        logger.info("Driver pronto (login + navegação inicial concluídos).")
+def _cache_flush() -> int:
+    if _redis is None:
+        return 0
+    try:
+        keys = _redis.keys("placa:*")
+        if keys:
+            return _redis.delete(*keys)
+        return 0
+    except Exception:
+        return 0
 
 
-def _prepare_for_query(headless: bool = True) -> None:
-    """
-    Garante sessão ativa e navega para o formulário de nova cotação.
-    - Cold start: _ensure_session já faz go_to_nova_cotacao — sem navegação extra.
-    - Warm reuse: sessão já existe, basta navegar para nova-cotacao novamente.
-    Deve ser chamado DENTRO do _session_lock.
-    """
-    global _driver_ready
+# ---------------------------------------------------------------------------
+# Validação dos dados retornados pelo portal
+# ---------------------------------------------------------------------------
+_ZERO_VALUES = {"r$ 0,00", "0,00", "r$0,00", ""}
+_CAMPOS_OBRIGATORIOS = ("chassi", "veiculo", "valor_base_do_veiculo", "codigo_fipe")
 
-    session_was_alive = _driver is not None and is_session_alive(_driver)
 
-    _ensure_session(headless)
+def _validate_dados(dados: dict) -> list:
+    invalidos = []
+    for campo in _CAMPOS_OBRIGATORIOS:
+        v = (dados.get(campo) or "").strip()
+        if not v or v.lower() in _ZERO_VALUES:
+            invalidos.append(campo)
+    # Todos os campos vazios = veículo não cadastrado, não adianta retentar
+    if len(invalidos) == len(_CAMPOS_OBRIGATORIOS):
+        raise DadosVaziosError(
+            f"Veículo não encontrado no sistema Tokio Marine "
+            f"(todos os campos vieram vazios: {', '.join(invalidos)})"
+        )
+    return invalidos
 
-    if session_was_alive:
-        # Sessão já existia — tenta recarregar apenas o iframe do CotadorAutoService
-        # (~3-6 s vs ~10 s do go_to_nova_cotacao completo)
-        if try_reuse_form(_driver):
-            # Iframe acessível — recarrega para limpar estado do formulário
+
+# ---------------------------------------------------------------------------
+# App FastAPI
+# ---------------------------------------------------------------------------
+app = FastAPI(title="TokioMarine RPA API", version="3.0.0")
+import os as _os
+if _os.path.isdir("static"):
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+
+
+# ---------------------------------------------------------------------------
+# Auth middleware — protege todas as rotas exceto /login e /logout
+# ---------------------------------------------------------------------------
+_OPEN_PATHS = {"/login", "/logout"}
+
+
+class _AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        # rotas abertas e assets estáticos são liberados
+        if path in _OPEN_PATHS or path.startswith("/static/"):
+            return await call_next(request)
+        token = request.cookies.get(_auth.COOKIE_NAME, "")
+        if not _auth.validate_session(token):
+            logger.info(f"[auth] Acesso negado em {path} — redirecionando para /login")
+            return RedirectResponse(url="/login", status_code=302)
+        return await call_next(request)
+
+
+app.add_middleware(_AuthMiddleware)
+
+
+@app.on_event("startup")
+async def startup():
+    global _pool
+    database.init_db()
+    logger.info("[startup] Banco SQLite inicializado.")
+    _init_redis()
+    headless = get_headless()
+    logger.info(f"[startup] Inicializando pool com {POOL_SIZE} drivers (headless={headless})...")
+    _pool = DriverPool(size=POOL_SIZE, headless=headless)
+    _pool.initialize()
+    logger.info("[startup] Pool pronto. API disponível.")
+    asyncio.create_task(_scheduled_job_watcher())
+
+
+@app.on_event("shutdown")
+def shutdown():
+    if _pool:
+        _pool.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Modelos Pydantic para batch
+# ---------------------------------------------------------------------------
+
+class BatchManualRequest(BaseModel):
+    placas: List[str]
+    nome: Optional[str] = "Lote Manual"
+
+
+class BatchScheduleRequest(BaseModel):
+    placas: List[str]
+    scheduled_at: str          # ISO 8601 UTC, ex: "2026-03-05T02:00:00Z"
+    nome: Optional[str] = "Lote Agendado"
+
+
+# ---------------------------------------------------------------------------
+# Batch: worker assíncrono
+# ---------------------------------------------------------------------------
+
+_running_jobs: set = set()   # conjunto de job_ids em execução
+
+
+async def _run_batch_job(job_id: str, placas: List[str]) -> None:
+    """Processa um lote de placas usando o driver pool."""
+    if job_id in _running_jobs:
+        return
+    _running_jobs.add(job_id)
+    database.start_batch_job(job_id)
+    logger.info(f"[batch:{job_id}] Iniciando lote com {len(placas)} placas")
+
+    loop = asyncio.get_event_loop()
+    sem = asyncio.Semaphore(POOL_SIZE)   # não lançar mais tasks que drivers
+
+    async def _process_one(placa: str) -> None:
+        async with sem:
+            t0 = _time.time()
+            # req_id com prefixo "b" identifica origem de lote na tela de Consultas Recentes
+            req_id = "b" + uuid.uuid4().hex[:7]
+            database.insert_query(req_id, placa)
             try:
-                t0 = _time.time()
-                reload_cotador_iframe(_driver)
-                logger.info(f"Iframe recarregado em {_time.time()-t0:.1f}s (formulário limpo).")
-            except Exception as e_reload:
-                # Reload falhou — faz navegação completa como fallback
-                logger.warning(f"Reload do iframe falhou ({e_reload}), fazendo go_to_nova_cotacao...")
-                go_to_nova_cotacao(_driver)
-        else:
-            # Iframe não disponível (Angular redirecionou) — faz navegação completa
-            logger.info("Iframe não encontrado — fazendo go_to_nova_cotacao completo...")
-            try:
-                go_to_nova_cotacao(_driver)
-            except Exception as e2:
-                logger.warning(f"Navegação completa falhou ({e2}), recriando sessão...")
-                _destroy_driver()
-                _ensure_session(headless)
-    else:
-        logger.info("Cold start concluído — driver já está em nova-cotacao.")
+                def _sync_query():
+                    with _pool.acquire(timeout=300) as driver:
+                        dados = query_plate(driver, placa)
+                        invalidos = _validate_dados(dados)
+                        if invalidos:
+                            raise DadosVaziosError(
+                                f"Campos inválidos: {', '.join(invalidos)}"
+                            )
+                        return dados
+
+                dados = await loop.run_in_executor(None, _sync_query)
+                duration = round(_time.time() - t0, 2)
+                _cache_set(placa, dados)
+                database.update_batch_result(job_id, placa, "ok", dados=dados, duration_s=duration)
+                database.finish_query(req_id, status="ok", cached=False,
+                                      attempts=1, duration_s=duration, dados=dados)
+
+            except (PlacaNaoEncontradaError, DadosVaziosError) as e:
+                duration = round(_time.time() - t0, 2)
+                database.update_batch_result(job_id, placa, "not_found", error_msg=str(e), duration_s=duration)
+                database.finish_query(req_id, status="not_found", attempts=1,
+                                      duration_s=duration, error_msg=str(e)[:200])
+
+            except Exception as e:
+                duration = round(_time.time() - t0, 2)
+                logger.error(f"[batch:{job_id}] Erro em {placa}: {e}")
+                database.update_batch_result(job_id, placa, "error", error_msg=str(e)[:200], duration_s=duration)
+                database.finish_query(req_id, status="error", attempts=1,
+                                      duration_s=duration, error_msg=str(e)[:200])
+
+    tasks = [asyncio.create_task(_process_one(p)) for p in placas]
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+    database.finish_batch_job(job_id)
+    _running_jobs.discard(job_id)
+    logger.info(f"[batch:{job_id}] Lote concluído")
+
+
+async def _scheduled_job_watcher() -> None:
+    """Verifica a cada 20s se há lotes agendados prontos para executar."""
+    while True:
+        try:
+            await asyncio.sleep(20)
+            pending = database.get_pending_scheduled_jobs()
+            for job_id in pending:
+                if job_id not in _running_jobs:
+                    job = database.get_batch_job(job_id)
+                    if job:
+                        placas = database.get_batch_placas(job_id)
+                        if placas:
+                            logger.info(f"[scheduler] Disparando lote agendado {job_id} ({len(placas)} placas)")
+                            asyncio.create_task(_run_batch_job(job_id, placas))
+        except Exception as e:
+            logger.error(f"[scheduler] Erro: {e}")
 
 
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Login / Logout
+# ---------------------------------------------------------------------------
+
+def _login_html() -> str:
+    path = _os.path.join("static", "login.html")
+    try:
+        with open(path, encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return "<h1>Login page not found.</h1>"
+
+
+@app.get("/login")
+async def login_get():
+    return HTMLResponse(_login_html())
+
+
+@app.post("/login")
+async def login_post(request: Request):
+    form = await request.form()
+    username = str(form.get("username", "")).strip()
+    password = str(form.get("password", ""))
+    ip = request.client.host if request.client else "unknown"
+
+    # IP bloqueado?
+    if _auth.is_locked(ip):
+        mins = max(1, _auth.remaining_lock(ip) // 60)
+        err = _urlquote(f"IP bloqueado por excesso de tentativas. Aguarde {mins} min.")
+        logger.warning(f"[auth] Login bloqueado para IP {ip}")
+        return RedirectResponse(url=f"/login?err={err}", status_code=302)
+
+    if _auth.check_credentials(username, password):
+        _auth.record_success(ip)
+        token = _auth.create_session()
+        logger.info(f"[auth] Login bem-sucedido: '{username}' de {ip}")
+        resp = RedirectResponse(url="/", status_code=302)
+        resp.set_cookie(
+            _auth.COOKIE_NAME, token,
+            httponly=True, samesite="strict", max_age=_auth.SESSION_TTL
+        )
+        return resp
+    else:
+        locked = _auth.record_failure(ip)
+        logger.warning(f"[auth] Falha de login: '{username}' de {ip}")
+        if locked:
+            err = _urlquote("IP bloqueado por 30 min após múltiplas tentativas inválidas.")
+            return RedirectResponse(url=f"/login?err={err}", status_code=302)
+        att = _auth.remaining_attempts(ip)
+        err = _urlquote("Usuário ou senha incorretos.")
+        return RedirectResponse(url=f"/login?err={err}&att={att}", status_code=302)
+
+
+@app.get("/logout")
+async def logout(request: Request):
+    token = request.cookies.get(_auth.COOKIE_NAME, "")
+    _auth.destroy_session(token)
+    resp = RedirectResponse(url="/login", status_code=302)
+    resp.delete_cookie(_auth.COOKIE_NAME)
+    logger.info(f"[auth] Logout de {request.client.host if request.client else 'unknown'}")
+    return resp
+
+
 @app.get("/health")
 def health(x_api_key: Optional[str] = Header(default=None)):
     _check_api_key(x_api_key)
-    with _session_lock:
-        alive = _driver is not None and is_session_alive(_driver)
-    return {"status": "ok", "session_alive": alive}
+    redis_ok = False
+    if _redis is not None:
+        try:
+            _redis.ping()
+            redis_ok = True
+        except Exception:
+            pass
+    return {
+        "status": "ok",
+        "pool_size": _pool.size if _pool else 0,
+        "pool_available": _pool.available() if _pool else 0,
+        "redis": "connected" if redis_ok else ("disabled" if _redis is None else "error"),
+        "cache_ttl_s": CACHE_TTL,
+    }
+
+
+@app.get("/pool/status")
+def pool_status(x_api_key: Optional[str] = Header(default=None)):
+    _check_api_key(x_api_key)
+    if _pool is None:
+        raise HTTPException(status_code=503, detail="Pool não inicializado.")
+    return {
+        "pool_size": _pool.size,
+        "drivers_available": _pool.available(),
+        "drivers_busy": _pool.size - _pool.available(),
+    }
 
 
 @app.get("/session/reset")
 def reset_session(x_api_key: Optional[str] = Header(default=None)):
-    """Força destruição da sessão atual. Próxima requisição faz login do zero."""
     _check_api_key(x_api_key)
-    with _session_lock:
-        _destroy_driver()
-    return {"ok": True, "mensagem": "Sessão destruída. Próxima consulta fará login novamente."}
+    if _pool is None:
+        raise HTTPException(status_code=503, detail="Pool não inicializado.")
+    _pool.shutdown()
+    _pool._shutdown = False
+    _pool.initialize()
+    return {"ok": True, "mensagem": f"{_pool.size} drivers recriados."}
+
+
+@app.get("/cache/clear/{placa}")
+def cache_clear_placa(placa: str, x_api_key: Optional[str] = Header(default=None)):
+    _check_api_key(x_api_key)
+    deleted = _cache_delete(placa)
+    return {"ok": True, "deleted": deleted, "placa": placa.upper()}
+
+
+@app.get("/cache/clear")
+def cache_clear_all(x_api_key: Optional[str] = Header(default=None)):
+    _check_api_key(x_api_key)
+    count = _cache_flush()
+    return {"ok": True, "deleted_keys": count}
+
+
+@app.get("/")
+def dashboard():
+    """Serve o painel de monitoramento."""
+    path = _os.path.join("static", "dashboard.html")
+    if not _os.path.exists(path):
+        return HTMLResponse("<h1>Dashboard não encontrado.</h1><p>Coloque static/dashboard.html no servidor.</p>")
+    with open(path, encoding="utf-8") as f:
+        return HTMLResponse(f.read())
+
+
+# ---------------------------------------------------------------------------
+# Endpoints do Dashboard (dados para o frontend)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/stats")
+def api_stats(x_api_key: Optional[str] = Header(default=None)):
+    _check_api_key(x_api_key)
+    return database.get_stats()
+
+
+@app.get("/api/queries")
+def api_queries(
+    limit: int = Query(100, ge=1, le=500),
+    x_api_key: Optional[str] = Header(default=None),
+):
+    _check_api_key(x_api_key)
+    return database.get_recent_queries(limit=limit)
+
+
+@app.get("/api/queries/{req_id}/logs")
+def api_query_logs(req_id: str, x_api_key: Optional[str] = Header(default=None)):
+    _check_api_key(x_api_key)
+    return database.get_query_logs(req_id)
+
+
+@app.get("/api/errors")
+def api_errors(x_api_key: Optional[str] = Header(default=None)):
+    _check_api_key(x_api_key)
+    return database.get_error_summary()
+
+
+# ---------------------------------------------------------------------------
+# Helper: log para DB e logger simultaneamente
+# ---------------------------------------------------------------------------
+
+def _log(req_id: str, level: str, msg: str) -> None:
+    getattr(logger, level.lower(), logger.info)(f"[{req_id}] {msg}")
+    try:
+        database.insert_log(req_id, level, msg)
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Endpoints: Batch (criação de banco de dados)
+# ---------------------------------------------------------------------------
+
+@app.post("/batch/manual")
+async def batch_manual(body: BatchManualRequest, x_api_key: Optional[str] = Header(default=None)):
+    _check_api_key(x_api_key)
+    if _pool is None:
+        raise HTTPException(status_code=503, detail="Pool não inicializado.")
+    placas = list({p.strip().upper() for p in body.placas if p.strip()})
+    if not placas:
+        raise HTTPException(status_code=400, detail="Nenhuma placa fornecida.")
+    job_id = uuid.uuid4().hex[:8]
+    database.insert_batch_job(job_id, body.nome or "Lote Manual", placas, scheduled_at=None)
+    asyncio.create_task(_run_batch_job(job_id, placas))
+    return {"ok": True, "job_id": job_id, "total": len(placas)}
+
+
+@app.post("/batch/schedule")
+async def batch_schedule(body: BatchScheduleRequest, x_api_key: Optional[str] = Header(default=None)):
+    _check_api_key(x_api_key)
+    placas = list({p.strip().upper() for p in body.placas if p.strip()})
+    if not placas:
+        raise HTTPException(status_code=400, detail="Nenhuma placa fornecida.")
+    if not body.scheduled_at:
+        raise HTTPException(status_code=400, detail="scheduled_at é obrigatório.")
+    job_id = uuid.uuid4().hex[:8]
+    database.insert_batch_job(job_id, body.nome or "Lote Agendado", placas, scheduled_at=body.scheduled_at)
+    return {"ok": True, "job_id": job_id, "total": len(placas), "scheduled_at": body.scheduled_at}
+
+
+@app.get("/batch/jobs")
+def batch_jobs(limit: int = Query(50), x_api_key: Optional[str] = Header(default=None)):
+    _check_api_key(x_api_key)
+    return database.get_batch_jobs(limit=limit)
+
+
+@app.get("/batch/jobs/{job_id}")
+def batch_job_detail(job_id: str, x_api_key: Optional[str] = Header(default=None)):
+    _check_api_key(x_api_key)
+    job = database.get_batch_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Lote não encontrado.")
+    return job
+
+
+@app.get("/batch/jobs/{job_id}/results")
+def batch_job_results(job_id: str, limit: int = Query(500), x_api_key: Optional[str] = Header(default=None)):
+    _check_api_key(x_api_key)
+    return database.get_batch_results(job_id, limit=limit)
+
+
+@app.delete("/batch/jobs/{job_id}")
+def batch_cancel(job_id: str, x_api_key: Optional[str] = Header(default=None)):
+    _check_api_key(x_api_key)
+    ok = database.cancel_batch_job(job_id)
+    if not ok:
+        raise HTTPException(status_code=400, detail="Lote não pode ser cancelado (já concluído ou não encontrado).")
+    _running_jobs.discard(job_id)
+    return {"ok": True, "job_id": job_id}
+
+
+@app.get("/batch/database")
+def batch_database(limit: int = Query(5000), x_api_key: Optional[str] = Header(default=None)):
+    _check_api_key(x_api_key)
+    return database.get_database_placas(limit=limit)
 
 
 @app.get("/placa/{placa}")
 def get_por_placa(
     placa: str,
     headless: Optional[bool] = Query(True),
+    no_cache: Optional[bool] = Query(False),
     x_api_key: Optional[str] = Header(default=None),
 ):
     _check_api_key(x_api_key)
     if not placa or len(placa) < 5:
-        raise HTTPException(status_code=400, detail="Placa inválida")
+        raise HTTPException(status_code=400, detail="Placa inválida.")
+    if _pool is None:
+        raise HTTPException(status_code=503, detail="Pool não inicializado.")
 
     req_id = uuid.uuid4().hex[:8]
-    logger.info(f"[{req_id}] Iniciando consulta para placa '{placa}'")
+    placa = placa.upper().strip()
 
-    with _session_lock:
-        last_exc = None
-        for attempt in range(1, MAX_RETRIES + 1):
-            try:
-                _prepare_for_query(headless=headless)
-                dados = query_plate(_driver, placa)
-                logger.info(f"[{req_id}] Consulta concluída na tentativa {attempt}.")
-                return JSONResponse(content={"ok": True, "dados": dados})
-            except Exception as e:
-                last_exc = e
-                tb = traceback.format_exc()
-                logger.error(f"[{req_id}] Tentativa {attempt}/{MAX_RETRIES} falhou:\n{tb}")
-                _destroy_driver()
-                if attempt < MAX_RETRIES:
-                    logger.info(f"[{req_id}] Retentando ({attempt + 1}/{MAX_RETRIES})...")
-        raise HTTPException(status_code=500, detail=str(last_exc))
+    # 1. Verifica cache antes de ocupar um driver
+    if not no_cache:
+        cached = _cache_get(placa)
+        if cached:
+            database.insert_query(req_id, placa)
+            database.finish_query(req_id, status="ok", cached=True, attempts=0, duration_s=0.0, dados=cached)
+            return JSONResponse(content={"ok": True, "dados": cached, "cache": True})
+
+    database.insert_query(req_id, placa)
+    _log(req_id, "INFO", f"Iniciando consulta (pool disponível: {_pool.available()}/{_pool.size})")
+
+    t_total = _time.time()
+    last_exc = None
+    attempt = 0
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            _log(req_id, "INFO", f"Tentativa {attempt}/{MAX_RETRIES} — aguardando driver livre...")
+            with _pool.acquire(timeout=300) as driver:
+                _log(req_id, "INFO", f"Driver obtido. Executando query_plate...")
+                t0 = _time.time()
+                dados = query_plate(driver, placa)
+                elapsed = _time.time() - t0
+
+                invalidos = _validate_dados(dados)
+                if invalidos:
+                    raise ValueError(
+                        f"Dados incompletos — campos inválidos: {', '.join(invalidos)}"
+                    )
+
+                total_elapsed = _time.time() - t_total
+                _log(req_id, "INFO", f"Consulta OK em {elapsed:.1f}s RPA ({total_elapsed:.1f}s total).")
+                _cache_set(placa, dados)
+                database.finish_query(
+                    req_id, status="ok", cached=False,
+                    attempts=attempt, duration_s=round(total_elapsed, 2), dados=dados
+                )
+                return JSONResponse(content={"ok": True, "dados": dados, "cache": False})
+
+        except (PlacaNaoEncontradaError, DadosVaziosError) as e:
+            last_exc = e
+            _log(req_id, "WARNING", f"Placa não encontrada no portal: {e}")
+            break  # resposta definitiva do portal — não retentar
+
+        except ValueError as e:
+            last_exc = e
+            _log(req_id, "WARNING", f"Dados inválidos: {e}")
+            if attempt < MAX_RETRIES:
+                _log(req_id, "INFO", "Retentando com outro driver...")
+
+        except TimeoutError as e:
+            last_exc = e
+            _log(req_id, "ERROR", f"Pool esgotado após 300s: {e}")
+            database.finish_query(req_id, status="error", attempts=attempt,
+                                  duration_s=round(_time.time()-t_total, 2), error_msg=str(e))
+            raise HTTPException(status_code=503, detail=str(e))
+
+        except Exception as e:
+            last_exc = e
+            tb = traceback.format_exc()
+            _log(req_id, "ERROR", f"Falha na tentativa {attempt}: {e}")
+            database.insert_log(req_id, "DEBUG", tb)
+            if attempt < MAX_RETRIES:
+                _log(req_id, "INFO", f"Retentando ({attempt + 1}/{MAX_RETRIES})...")
+
+    if isinstance(last_exc, (PlacaNaoEncontradaError, DadosVaziosError)):
+        database.finish_query(
+            req_id, status="not_found", attempts=attempt,
+            duration_s=round(_time.time()-t_total, 2), error_msg=str(last_exc)
+        )
+        raise HTTPException(status_code=404, detail=str(last_exc))
+
+    final_status = "invalid_data" if isinstance(last_exc, ValueError) else "error"
+    database.finish_query(
+        req_id, status=final_status, attempts=attempt,
+        duration_s=round(_time.time()-t_total, 2), error_msg=str(last_exc)
+    )
+    http_status = 422 if isinstance(last_exc, ValueError) else 500
+    raise HTTPException(status_code=http_status, detail=str(last_exc))
 
 
 if __name__ == "__main__":

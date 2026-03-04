@@ -17,6 +17,36 @@ from config import (
 )
 
 
+class PlacaNaoEncontradaError(ValueError):
+    """Levantada quando o portal exibe 'Placa não localizada' — não adianta retentar."""
+    pass
+
+
+class DadosVaziosError(ValueError):
+    """Todos os campos do veículo vieram vazios — veículo não cadastrado no sistema Tokio Marine."""
+    pass
+
+
+def _check_placa_nao_encontrada(driver: webdriver.Chrome) -> bool:
+    """Verifica se o alerta 'Placa não localizada' está visível na página (dentro do iframe corrente)."""
+    try:
+        # Texto exato do portal Tokio Marine
+        alerts = driver.find_elements(
+            By.XPATH,
+            "//*[contains(translate(text(),'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),"
+            "'placa não localizada')]"
+        )
+        for a in alerts:
+            try:
+                if a.is_displayed():
+                    return True
+            except Exception:
+                pass
+    except Exception:
+        pass
+    return False
+
+
 def build_driver(headless: Optional[bool] = None) -> webdriver.Chrome:
     if headless is None:
         headless = get_headless()
@@ -557,9 +587,17 @@ def query_plate(driver: webdriver.Chrome, placa: str, timeout: int = 60) -> Dict
     else:
         _click_pesquisar_if_present(driver, context_el=plate_input)
 
+    # Verifica alerta de placa não encontrada logo após o Pesquisar
+    if _check_placa_nao_encontrada(driver):
+        raise PlacaNaoEncontradaError(f"Placa {placa_txt} não localizada no sistema Tokio Marine")
+
     # Sempre tenta selecionar o veículo da "Lista de Veículos" (modal abre após Pesquisar)
     _maybe_select_first_vehicle_in_modal(driver, timeout=20)
     # Não usa sleep fixo — _vehicle_info_populated abaixo aguarda o formulário atualizar
+
+    # Verifica alerta novamente após tentativa de seleção de veículo
+    if _check_placa_nao_encontrada(driver):
+        raise PlacaNaoEncontradaError(f"Placa {placa_txt} não localizada no sistema Tokio Marine")
 
     # Aguarda o campo veiculo/modelo ser preenchido (indica seleção bem-sucedida)
     def _vehicle_info_populated(drv):
@@ -579,7 +617,13 @@ def query_plate(driver: webdriver.Chrome, placa: str, timeout: int = 60) -> Dict
     try:
         wait.until(_vehicle_info_populated)
     except TimeoutException:
-        pass  # retorna o que estiver preenchido
+        # Confirma se o timeout foi causado por placa não encontrada
+        if _check_placa_nao_encontrada(driver):
+            raise PlacaNaoEncontradaError(f"Placa {placa_txt} não localizada no sistema Tokio Marine")
+
+    # Última verificação antes de ler os campos
+    if _check_placa_nao_encontrada(driver):
+        raise PlacaNaoEncontradaError(f"Placa {placa_txt} não localizada no sistema Tokio Marine")
 
     # Lê campos usando name=* (mais robusto que labels)
     def _by_name(pattern: str) -> Optional[str]:

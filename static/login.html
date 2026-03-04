@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login — Prisma RPA</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    body { background: #0f172a; }
+    input:-webkit-autofill {
+      -webkit-box-shadow: 0 0 0 1000px #1e293b inset !important;
+      -webkit-text-fill-color: #e2e8f0 !important;
+    }
+    @keyframes shake {
+      0%,100%{ transform:translateX(0); }
+      20%,60%{ transform:translateX(-6px); }
+      40%,80%{ transform:translateX(6px); }
+    }
+    .shake { animation: shake .4s ease; }
+  </style>
+</head>
+<body class="min-h-screen flex items-center justify-center font-mono text-sm">
+
+  <div class="w-full max-w-sm px-4">
+
+    <!-- Logo / title -->
+    <div class="text-center mb-8">
+      <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-4"
+           style="background:#1e293b;border:1px solid #334155">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+        </svg>
+      </div>
+      <h1 class="text-xl font-bold text-white">Prisma RPA</h1>
+      <p class="text-xs text-slate-500 mt-1">Painel de Monitoramento</p>
+    </div>
+
+    <!-- Card -->
+    <div id="login-card" style="background:#1e293b;border:1px solid #334155"
+         class="rounded-2xl p-8 shadow-2xl">
+
+      <!-- Error banner (hidden by default, shown via template or JS) -->
+      <div id="error-banner" class="hidden mb-5 px-4 py-3 rounded-lg text-xs font-bold
+           bg-red-900 text-red-300 border border-red-700 flex items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+        </svg>
+        <span id="error-text"></span>
+      </div>
+
+      <form id="login-form" method="POST" action="/login" class="space-y-4" onsubmit="onSubmit(event)">
+
+        <div>
+          <label class="block text-xs text-slate-400 mb-1.5">Usuário</label>
+          <input id="username" name="username" type="text" autocomplete="username"
+                 required autofocus
+                 class="w-full rounded-lg px-4 py-2.5 text-sm text-white
+                        focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                 style="background:#0f172a;border:1px solid #475569" />
+        </div>
+
+        <div>
+          <label class="block text-xs text-slate-400 mb-1.5">Senha</label>
+          <div class="relative">
+            <input id="password" name="password" type="password" autocomplete="current-password"
+                   required
+                   class="w-full rounded-lg px-4 py-2.5 pr-10 text-sm text-white
+                          focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                   style="background:#0f172a;border:1px solid #475569" />
+            <button type="button" onclick="togglePwd()"
+                    class="absolute inset-y-0 right-3 flex items-center text-slate-500 hover:text-slate-300">
+              <svg id="eye-icon" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none"
+                   viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <button type="submit" id="btn-login"
+                class="w-full py-2.5 rounded-lg font-bold text-sm transition-colors mt-2
+                       bg-blue-600 hover:bg-blue-500 text-white">
+          Entrar
+        </button>
+
+        <!-- tentativas restantes (injetado pelo servidor se houver) -->
+        <p id="attempts-info" class="text-center text-xs text-slate-600 hidden"></p>
+      </form>
+    </div>
+
+    <p class="text-center text-xs text-slate-700 mt-6">
+      Acesso restrito ao sistema interno &mdash; Prisma RPA v2
+    </p>
+  </div>
+
+<script>
+// Detecta parâmetro de erro na query string (para redirect com ?err=...)
+(function() {
+  const p = new URLSearchParams(location.search);
+  const err = p.get('err');
+  const att = p.get('att');
+  if (err) {
+    const banner = document.getElementById('error-banner');
+    document.getElementById('error-text').textContent = decodeURIComponent(err);
+    banner.classList.remove('hidden');
+    document.getElementById('login-card').classList.add('shake');
+    setTimeout(() => document.getElementById('login-card').classList.remove('shake'), 500);
+  }
+  if (att) {
+    const el = document.getElementById('attempts-info');
+    el.textContent = `Tentativas restantes: ${att}`;
+    el.classList.remove('hidden');
+  }
+})();
+
+function togglePwd() {
+  const inp = document.getElementById('password');
+  inp.type = inp.type === 'password' ? 'text' : 'password';
+}
+
+function onSubmit(e) {
+  const btn = document.getElementById('btn-login');
+  btn.disabled = true;
+  btn.textContent = 'Verificando...';
+  // deixa o form fazer POST normal
+}
+</script>
+</body>
+</html>

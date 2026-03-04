@@ -69,6 +69,17 @@ TIMEOUT_IFRAME  = int(os.getenv("TIMEOUT_IFRAME", "30"))   # espera do iframe Co
 TIMEOUT_PAGE    = int(os.getenv("TIMEOUT_PAGE",   "15"))   # espera page load / navegação
 MAX_RETRIES     = int(os.getenv("MAX_RETRIES",    "2"))    # tentativas antes de destruir sessão
 
+# ---------------------------------------------------------------------------
+# Pool de drivers
+# ---------------------------------------------------------------------------
+POOL_SIZE       = int(os.getenv("POOL_SIZE",      "3"))    # número de Chrome em paralelo
+
+# ---------------------------------------------------------------------------
+# Cache Redis
+# ---------------------------------------------------------------------------
+REDIS_URL       = os.getenv("REDIS_URL",  "redis://localhost:6379/0")
+CACHE_TTL       = int(os.getenv("CACHE_TTL",      "3600")) # segundos (padrão 1h)
+
 
 def get_headless() -> bool:
     """Retorna configuração de headless (padrão true)."""
