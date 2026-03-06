@@ -42,6 +42,29 @@
     ::-webkit-scrollbar { width:6px; height:6px; }
     ::-webkit-scrollbar-track { background:#1e293b; }
     ::-webkit-scrollbar-thumb { background:#475569; border-radius:3px; }
+    /* health bar */
+    .health-bar-track { background:#1e293b; border:1px solid #334155; border-radius:9999px; height:12px; overflow:hidden; }
+    .health-bar-fill  { height:100%; border-radius:9999px; transition: width .6s ease; }
+    /* metric card */
+    .metric-card      { background:linear-gradient(135deg,#1e293b 0%,#1a2535 100%); border:1px solid #334155; transition:border-color .2s; }
+    .metric-card:hover { border-color:#475569; }
+    /* timeline blocks */
+    .tl-block { width:12px; min-width:12px; height:28px; border-radius:3px; flex-shrink:0; transition:opacity .2s,transform .2s; cursor:help; }
+    .tl-block:hover { opacity:1 !important; transform:scaleY(1.2); }
+    /* pool worker card */
+    .worker-card { border:1px solid #334155; border-radius:8px; padding:6px 10px; min-width:70px; text-align:center; }
+    /* stat mini-bar */
+    .mini-bar { background:#334155; border-radius:9999px; height:4px; overflow:hidden; margin-top:4px; }
+    .mini-bar-fill { height:100%; border-radius:9999px; transition:width .5s ease; }
+    /* nav badge */
+    .nav-badge { background:#dc2626; color:#fff; border-radius:9999px; font-size:9px; padding:1px 5px; font-weight:700; min-width:16px; text-align:center; line-height:14px; }
+    /* glow ok */
+    .glow-green { box-shadow: 0 0 12px #22c55e44; }
+    .glow-red   { box-shadow: 0 0 12px #ef444444; }
+    /* section header */
+    .section-header { font-size:10px; color:#64748b; text-transform:uppercase; letter-spacing:.1em; font-weight:700; }
+    /* throughput chip */
+    .chip { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:9999px; font-size:10px; font-weight:700; }
   </style>
 </head>
 <body class="text-slate-300 min-h-screen font-mono text-sm">
@@ -64,43 +87,136 @@
          class="px-3 py-1 rounded text-xs font-bold transition-colors"
          style="background:#1e293b;border:1px solid #475569;color:#94a3b8"
          onmouseover="this.style.color='#f87171'" onmouseout="this.style.color='#94a3b8'">&#x2715; Sair</a>
+      <button onclick="reiniciarRPA()" id="btn-reiniciar"
+        class="px-3 py-1 rounded text-xs font-bold transition-colors"
+        style="background:#450a0a;border:1px solid #991b1b;color:#fca5a5"
+        onmouseover="this.style.background='#7f1d1d'" onmouseout="this.style.background='#450a0a'">
+        &#x21bb; Reiniciar RPA
+      </button>
     </div>
   </nav>
 
   <div class="max-w-screen-2xl mx-auto px-4 py-6 space-y-6">
 
     <!-- METRIC CARDS -->
-    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3" id="metrics">
+    <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3" id="metrics">
       <!-- filled by JS -->
+    </div>
+
+    <!-- SYSTEM HEALTH + TIMELINE -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+      <!-- System Health Score -->
+      <div class="card rounded-xl p-4" id="health-score-card">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="section-header">🛡 Saúde do Sistema</h2>
+          <span id="health-score-label" class="text-xl font-bold text-white">—</span>
+        </div>
+        <div class="health-bar-track mb-2">
+          <div id="health-score-bar" class="health-bar-fill bg-slate-600" style="width:0%"></div>
+        </div>
+        <div class="grid grid-cols-3 gap-2 mt-3" id="health-details">
+          <div class="text-center">
+            <div class="text-xs text-slate-500 mb-1">Taxa de Sucesso</div>
+            <div id="hd-success" class="font-bold text-green-400 text-sm">—</div>
+          </div>
+          <div class="text-center">
+            <div class="text-xs text-slate-500 mb-1">Taxa de Erro</div>
+            <div id="hd-error" class="font-bold text-red-400 text-sm">—</div>
+          </div>
+          <div class="text-center">
+            <div class="text-xs text-slate-500 mb-1">Pool Disponível</div>
+            <div id="hd-pool" class="font-bold text-blue-400 text-sm">—</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Query Timeline -->
+      <div class="card rounded-xl p-4">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="section-header">📈 Últimas Consultas (timeline)</h2>
+          <span class="text-xs text-slate-600" id="timeline-legend">
+            <span style="background:#22c55e" class="inline-block w-2 h-2 rounded-sm mr-1"></span>OK
+            <span style="background:#ef4444" class="inline-block w-2 h-2 rounded-sm ml-2 mr-1"></span>Erro
+            <span style="background:#38bdf8" class="inline-block w-2 h-2 rounded-sm ml-2 mr-1"></span>N/A
+            <span style="background:#c084fc" class="inline-block w-2 h-2 rounded-sm ml-2 mr-1"></span>Cache
+          </span>
+        </div>
+        <div id="timeline" class="flex items-end gap-1 overflow-hidden" style="min-height:36px">
+          <span class="text-xs text-slate-600 italic">Aguardando dados...</span>
+        </div>
+        <div class="mt-2 flex items-center justify-between text-xs text-slate-600">
+          <span>← mais recente</span>
+          <span id="timeline-throughput"></span>
+        </div>
+      </div>
+
     </div>
 
     <!-- POOL + REDIS STATUS -->
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       <div class="card rounded-xl p-4">
-        <h2 class="text-xs text-slate-500 uppercase tracking-widest mb-3">Pool de Drivers Chrome</h2>
-        <div id="pool-status" class="flex items-center gap-3 flex-wrap">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="section-header">⚙️ Pool de Workers Chrome</h2>
+          <span id="pool-utilization" class="chip" style="background:#1e3a5f;color:#60a5fa">—</span>
+        </div>
+        <div class="health-bar-track mb-3">
+          <div id="pool-util-bar" class="health-bar-fill bg-blue-500" style="width:0%"></div>
+        </div>
+        <div id="pool-status" class="flex items-center gap-2 flex-wrap">
           <!-- filled by JS -->
         </div>
       </div>
       <div class="card rounded-xl p-4">
-        <h2 class="text-xs text-slate-500 uppercase tracking-widest mb-3">Infraestrutura</h2>
+        <h2 class="section-header mb-3">🔧 Infraestrutura &amp; Runtime</h2>
         <div id="infra-status" class="space-y-2">
           <!-- filled by JS -->
         </div>
       </div>
     </div>
 
-    <!-- ERROS RECENTES -->
-    <div class="card rounded-xl p-4" id="error-section" style="display:none">
-      <h2 class="text-xs text-slate-500 uppercase tracking-widest mb-3">⚠ Erros Recorrentes</h2>
-      <table class="w-full text-xs">
-        <thead><tr class="text-slate-500 border-b border-slate-700">
-          <th class="text-left py-1 pr-4">Mensagem</th>
-          <th class="text-right py-1 pr-4 whitespace-nowrap">Ocorrências</th>
-          <th class="text-right py-1 whitespace-nowrap">Última vez</th>
-        </tr></thead>
-        <tbody id="error-tbody"></tbody>
-      </table>
+    <!-- JOBS ATIVOS -->
+    <div class="card rounded-xl p-4" id="active-jobs-section">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="section-header">🏃 Jobs em Execução / Aguardando</h2>
+        <span class="text-xs text-slate-600" id="active-jobs-count">nenhum ativo</span>
+      </div>
+      <div id="active-jobs-body">
+        <p class="text-xs text-slate-600 italic">Nenhum job ativo no momento.</p>
+      </div>
+    </div>
+
+    <!-- LOG DE ACESSOS À API -->
+    <div class="card rounded-xl p-4" id="access-section">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-xs text-slate-500 uppercase tracking-widest">&#x1f4e1; Log de Acessos à API</h2>
+        <div class="flex items-center gap-3">
+          <span class="text-xs text-slate-600">Últimas <span id="access-count">0</span> requisições</span>
+          <button onclick="loadAccessLogs()" class="text-xs text-slate-500 hover:text-white">↺ Atualizar</button>
+          <button onclick="toggleAccessLog()" class="text-xs text-slate-500 hover:text-white" id="access-toggle-btn">▼ Recolher</button>
+        </div>
+      </div>
+      <div id="access-body">
+        <div class="overflow-auto max-h-60">
+          <table class="w-full text-xs border-collapse">
+            <thead class="sticky top-0" style="background:#1e293b">
+              <tr class="text-slate-500 border-b border-slate-700">
+                <th class="text-left py-2 pr-3 whitespace-nowrap">Horário</th>
+                <th class="text-left py-2 pr-3">IP</th>
+                <th class="text-left py-2 pr-3">Método</th>
+                <th class="text-left py-2 pr-3">Endpoint</th>
+                <th class="text-left py-2 pr-3">Placa</th>
+                <th class="text-right py-2 pr-3">Status</th>
+                <th class="text-right py-2">Duração</th>
+              </tr>
+            </thead>
+            <tbody id="access-tbody">
+              <tr><td colspan="7" class="text-center text-slate-600 py-4">Carregando...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="text-xs text-slate-600 mt-2 italic">&#x2139;&#xfe0f; Requisições à <code>/placa/</code> entram automaticamente em fila no pool de drivers — quando todos os workers estão ocupados, a requisição aguarda até 300s antes de expirar.</p>
+      </div>
     </div>
 
     <!-- ═══════════════════════════════════════════════════════
@@ -182,14 +298,32 @@
               </button>
             </div>
 
-            <div class="p-4 rounded-lg" style="background:#0f172a;border:1px solid #1e3a5f">
-              <h3 class="text-xs font-bold text-purple-400 mb-3">&#x1f5d3;&#xfe0f; Agendar Execução</h3>
-              <p class="text-xs text-slate-500 mb-2">Gere as placas e defina data/hora para execução automática.</p>
-              <input id="batch-schedule-dt" type="datetime-local"
-                class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-purple-500 mb-3" />
-              <button onclick="criarAgendado()" id="btn-schedule"
-                class="w-full py-2.5 rounded-lg bg-purple-700 hover:bg-purple-600 text-white text-sm font-bold transition-colors">
-                &#x1f5d3;&#xfe0f; Criar Agendado
+            <!-- DESCOBRIR PLACAS -->
+            <div class="p-4 rounded-lg" style="background:#0f172a;border:1px solid #78350f55">
+              <h3 class="text-xs font-bold text-amber-400 mb-1">&#x1f50d; Descobrir Placas e Criar no Banco</h3>
+              <p class="text-xs text-slate-500 mb-3">Gera e consulta placas automaticamente até atingir a meta de registros válidos.<br>Não precisa gerar placas manualmente &mdash; tudo automático.</p>
+              <div class="grid grid-cols-2 gap-3 mb-3">
+                <div>
+                  <label class="text-xs text-slate-500 block mb-1">Meta de placas válidas</label>
+                  <input id="discover-target" type="number" min="1" value="50"
+                    placeholder="Sem limite"
+                    class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500" />
+                </div>
+                <div>
+                  <label class="text-xs text-slate-500 block mb-1">Formato</label>
+                  <select id="discover-format"
+                    class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500">
+                    <option value="both" selected>Ambos</option>
+                    <option value="old">Antigo &mdash; ABC1234</option>
+                    <option value="mercosul">Mercosul &mdash; ABC1D23</option>
+                  </select>
+                </div>
+              </div>
+              <div id="discover-hint" class="text-xs text-slate-600 mb-2"></div>
+              <button onclick="descobrirPlacas()" id="btn-discover"
+                class="w-full py-2.5 rounded-lg text-white text-sm font-bold transition-colors"
+                style="background:#92400e;border:1px solid #d97706">
+                &#x1f50d; Descobrir e Salvar no Banco
               </button>
             </div>
 
@@ -224,12 +358,11 @@
                   <th class="text-right py-2 pr-3 whitespace-nowrap">✅ OK</th>
                   <th class="text-right py-2 pr-3 whitespace-nowrap">🔵 N/E</th>
                   <th class="text-right py-2 pr-3 whitespace-nowrap">❌ Erro</th>
-                  <th class="text-right py-2 pr-3 whitespace-nowrap">Agendado</th>
                   <th class="text-right py-2">Ação</th>
                 </tr>
               </thead>
               <tbody id="batch-tbody">
-                <tr><td colspan="9" class="text-center text-slate-600 py-6">Nenhum lote criado ainda.</td></tr>
+                <tr><td colspan="8" class="text-center text-slate-600 py-6">Nenhum lote criado ainda.</td></tr>
               </tbody>
             </table>
           </div>
@@ -283,6 +416,7 @@ const API = '';  // mesmo origin
 
 let _autoInterval = null;
 let _selectedReqId = null;
+let _queriesMap    = {};
 
 // ----------------------------------------------------------------- helpers
 function fmt(utcStr) {
@@ -307,58 +441,177 @@ function badge(status, cached) {
 // ----------------------------------------------------------------- fetch calls
 async function fetchJSON(url) {
   const r = await fetch(API + url);
+  // Se o servidor redirecionou para /login, a sessão expirou
+  const ct = r.headers.get('content-type') || '';
+  if (!ct.includes('application/json')) {
+    // Resposta HTML = fomos redirecionados para o login
+    if (r.url && r.url.includes('/login')) {
+      window.location.href = '/login';
+      throw new Error('Sessão expirada — redirecionando...');
+    }
+    throw new Error(`Resposta inesperada do servidor (${r.status})`);
+  }
   if (!r.ok) throw new Error(r.statusText);
   return r.json();
 }
 
 // ----------------------------------------------------------------- render metrics
 function renderMetrics(stats, health) {
+  const total    = stats.total      ?? 0;
+  const ok       = stats.ok         ?? 0;
+  const errors   = (stats.errors ?? 0) + (stats.invalid ?? 0);
+  const notFound = stats.not_found  ?? 0;
+  const cache    = stats.from_cache ?? 0;
+  const succRate = total > 0 ? Math.round(ok   / total * 100) : 0;
+  const errRate  = total > 0 ? Math.round(errors / total * 100) : 0;
+  const avgDur   = stats.avg_duration_s != null ? stats.avg_duration_s.toFixed(1) + 's' : '—';
+  const errColor = errRate > 15 ? 'text-red-400' : errRate > 5 ? 'text-orange-400' : 'text-green-400';
+
   const cards = [
-    { label:'Total',       value: stats.total      ?? 0, color:'text-white' },
-    { label:'Bem-sucedidas', value: stats.ok        ?? 0, color:'text-green-400' },
-    { label:'Erros',       value: (stats.errors ?? 0) + (stats.invalid ?? 0), color:'text-red-400' },
-    { label:'Do Cache',    value: stats.from_cache  ?? 0, color:'text-purple-400' },
-    { label:'Duração Média', value: stats.avg_duration_s != null ? stats.avg_duration_s + 's' : '—', color:'text-blue-400' },
-    { label:'Placas Únicas', value: stats.unique_placas ?? 0, color:'text-cyan-400' },
-    { label:'No Banco',      value: stats.db_placas       ?? 0, color:'text-emerald-400' },
+    {
+      icon: '📊', label: 'Total Consul.', value: total, color: 'text-white',
+      sub: `<div class="mini-bar"><div class="mini-bar-fill bg-slate-400" style="width:100%"></div></div>`
+    },
+    {
+      icon: '✅', label: 'Bem-sucedidas', value: ok, color: 'text-green-400',
+      sub: `<div class="mini-bar"><div class="mini-bar-fill bg-green-500" style="width:${succRate}%"></div></div><span class="text-xs text-slate-500">${succRate}% sucesso</span>`
+    },
+    {
+      icon: '❌', label: 'Erros', value: errors, color: errRate > 15 ? 'text-red-400' : errRate > 5 ? 'text-orange-400' : 'text-slate-400',
+      sub: `<div class="mini-bar"><div class="mini-bar-fill bg-red-500" style="width:${errRate}%"></div></div><span class="text-xs ${errColor}">${errRate}% erros</span>`
+    },
+    {
+      icon: '🔍', label: 'Não Encontrado', value: notFound, color: 'text-sky-400',
+      sub: `<div class="mini-bar"><div class="mini-bar-fill bg-sky-500" style="width:${total>0?Math.round(notFound/total*100):0}%"></div></div>`
+    },
+    {
+      icon: '⚡', label: 'Do Cache', value: cache, color: 'text-purple-400',
+      sub: `<div class="mini-bar"><div class="mini-bar-fill bg-purple-500" style="width:${total>0?Math.round(cache/total*100):0}%"></div></div>`
+    },
+    {
+      icon: '⏱', label: 'Duração Média', value: avgDur, color: 'text-blue-400',
+      sub: `<span class="text-xs text-slate-500">por consulta</span>`
+    },
+    {
+      icon: '🪪', label: 'Placas Únicas', value: stats.unique_placas ?? 0, color: 'text-cyan-400',
+      sub: `<span class="text-xs text-slate-500">consultadas</span>`
+    },
+    {
+      icon: '🗄️', label: 'No Banco', value: stats.db_placas ?? 0, color: 'text-emerald-400',
+      sub: `<span class="text-xs text-slate-500">registros OK</span>`
+    },
   ];
+
   document.getElementById('metrics').innerHTML = cards.map(c => `
-    <div class="card rounded-xl p-4 text-center">
-      <div class="text-2xl font-bold ${c.color}">${c.value}</div>
-      <div class="text-xs text-slate-500 mt-1">${c.label}</div>
+    <div class="metric-card rounded-xl p-3">
+      <div class="flex items-center justify-between mb-1">
+        <span class="text-base leading-none">${c.icon}</span>
+        <span class="text-2xl font-bold ${c.color}">${c.value}</span>
+      </div>
+      <div class="text-xs text-slate-500 mb-1">${c.label}</div>
+      <div class="text-xs">${c.sub}</div>
     </div>`).join('');
+
+  // update health detail fields
+  document.getElementById('hd-success').textContent = succRate + '%';
+  document.getElementById('hd-success').className = `font-bold text-sm ${succRate >= 90 ? 'text-green-400' : succRate >= 70 ? 'text-yellow-400' : 'text-red-400'}`;
+  document.getElementById('hd-error').textContent = errRate + '%';
+  document.getElementById('hd-error').className = `font-bold text-sm ${errRate <= 5 ? 'text-green-400' : errRate <= 15 ? 'text-orange-400' : 'text-red-400'}`;
+}
+
+// ----------------------------------------------------------------- render system health
+function renderSystemHealth(stats, health) {
+  const total    = stats.total    ?? 0;
+  const ok       = stats.ok       ?? 0;
+  const errors   = (stats.errors ?? 0) + (stats.invalid ?? 0);
+  const errRate  = total > 0 ? errors / total : 0;
+  const poolAvail = health.pool_available ?? 0;
+  const poolSize  = Math.max(1, health.pool_size ?? 1);
+
+  let score = 0;
+  score += Math.max(0, 35 * (1 - errRate * 4));      // error rate: up to 35pts
+  score += (poolAvail / poolSize) * 35;               // pool avail: up to 35pts
+  score += health.status === 'ok' ? 20 : 0;           // api online: 20pts
+  score += total > 10 ? 10 : total > 0 ? 5 : 0;      // has data: up to 10pts
+  score  = Math.min(100, Math.round(score));
+
+  const barColor = score >= 80 ? 'bg-green-500' : score >= 55 ? 'bg-yellow-500' : 'bg-red-500';
+  const labelColor = score >= 80 ? 'text-green-400' : score >= 55 ? 'text-yellow-400' : 'text-red-400';
+  const emoji = score >= 80 ? '🟢' : score >= 55 ? '🟡' : '🔴';
+
+  const bar = document.getElementById('health-score-bar');
+  bar.style.width = score + '%';
+  bar.className = `health-bar-fill ${barColor}`;
+
+  const lbl = document.getElementById('health-score-label');
+  lbl.textContent = emoji + ' ' + score + '/100';
+  lbl.className = `text-xl font-bold ${labelColor}`;
+
+  document.getElementById('hd-pool').textContent = poolAvail + '/' + poolSize + ' livres';
+}
+
+// ----------------------------------------------------------------- render timeline
+function renderTimeline(queries) {
+  const colours = { ok:'#22c55e', error:'#ef4444', invalid_data:'#f97316', not_found:'#38bdf8', pending:'#64748b' };
+  const last40  = queries.slice(0, 40).reverse();
+  const blocks  = last40.map(q => {
+    const c   = q.cached ? '#c084fc' : (colours[q.status] || '#64748b');
+    const tip = `${q.placa} — ${q.status}${q.cached ? ' (cache)' : ''} — ${dur(q.duration_s)}`;
+    return `<div title="${tip}" class="tl-block" style="background:${c};opacity:0.75"></div>`;
+  }).join('');
+
+  document.getElementById('timeline').innerHTML = blocks ||
+    '<span class="text-xs text-slate-600 italic">Aguardando consultas...</span>';
+
+  // compute throughput (queries in last hour from timestamps)
+  if (queries.length > 1) {
+    const recent = queries.filter(q => {
+      const t = new Date(q.created_at);
+      return (Date.now() - t.getTime()) < 3600000;
+    });
+    const thr = recent.length;
+    document.getElementById('timeline-throughput').innerHTML =
+      `<span class="chip" style="background:#1e3a5f;color:#60a5fa">${thr} consultas/hora</span>`;
+  }
 }
 
 // ----------------------------------------------------------------- render pool
 function renderPool(health) {
-  const size = health.pool_size || 0;
+  const size  = health.pool_size      || 0;
   const avail = health.pool_available || 0;
-  const busy = size - avail;
+  const busy  = size - avail;
+  const util  = size > 0 ? Math.round(busy / size * 100) : 0;
+
+  // utilization bar & chip
+  const utilBar  = document.getElementById('pool-util-bar');
+  const utilChip = document.getElementById('pool-utilization');
+  if (utilBar && utilChip) {
+    utilBar.style.width = util + '%';
+    utilBar.className   = `health-bar-fill ${util > 80 ? 'bg-red-500' : util > 50 ? 'bg-yellow-500' : 'bg-green-500'}`;
+    utilChip.textContent = `${util}% em uso (${busy}/${size})`;
+    utilChip.style.color = util > 80 ? '#f87171' : util > 50 ? '#fbbf24' : '#4ade80';
+  }
+
+  // worker dots
   let dots = '';
   for (let i = 0; i < size; i++) {
     const isBusy = i < busy;
-    dots += `<div class="flex flex-col items-center gap-1">
-      <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold
-        ${isBusy ? 'bg-orange-500 text-white' : 'bg-green-600 text-white'}">
-        ${isBusy ? '⚙' : '✓'}
-      </div>
-      <span class="text-xs ${isBusy ? 'text-orange-400':'text-green-400'}">${isBusy ? 'ocupado':'livre'}</span>
+    dots += `<div class="worker-card ${isBusy ? 'glow-red' : 'glow-green'}" style="background:${isBusy ? '#450a0a' : '#052e16'};border-color:${isBusy ? '#991b1b' : '#166534'}">
+      <div class="text-lg">${isBusy ? '⚙️' : '✅'}</div>
+      <div class="text-xs font-bold ${isBusy ? 'text-red-400' : 'text-green-400'} mt-1">W${i + 1}</div>
+      <div class="text-xs text-slate-500">${isBusy ? 'ocupado' : 'livre'}</div>
     </div>`;
   }
   document.getElementById('pool-status').innerHTML = dots ||
-    '<span class="text-slate-600">Pool não inicializado</span>';
+    '<span class="text-slate-600 text-xs">Pool não inicializado</span>';
 
-  // atualiza summary-pool para uso no gerador de placas
+  // update summary-pool for plate generator
   const spEl = document.getElementById('summary-pool');
   if (spEl) { spEl.dataset.avail = avail; spEl.textContent = avail + ' workers'; }
 
-  // status dot
+  // main status dot
   const dot = document.getElementById('status-dot');
-  if (health.status === 'ok') {
-    dot.className = 'pulse-dot bg-green-400';
-  } else {
-    dot.className = 'pulse-dot bg-red-400';
-  }
+  dot.className = health.status === 'ok' ? 'pulse-dot bg-green-400' : 'pulse-dot bg-red-400';
 }
 
 // ----------------------------------------------------------------- render infra
@@ -368,36 +621,100 @@ function renderInfra(health) {
                      redis === 'disabled'  ? 'text-slate-500' : 'text-red-400';
   const redisLabel = redis === 'connected' ? '● Conectado' :
                      redis === 'disabled'  ? '○ Desabilitado' : '✕ Erro';
+  const poolAvail = health.pool_available ?? '?';
+  const poolSize  = health.pool_size      ?? '?';
+  const uptime    = health.uptime_s != null
+    ? (() => { const h = Math.floor(health.uptime_s/3600), m = Math.floor((health.uptime_s%3600)/60), s = health.uptime_s%60;
+               return h ? `${h}h ${m}m` : m ? `${m}m ${s}s` : `${s}s`; })()
+    : '—';
+
   document.getElementById('infra-status').innerHTML = `
-    <div class="flex justify-between">
-      <span class="text-slate-500">Redis Cache</span>
-      <span class="${redisColor} font-bold">${redisLabel}</span>
-    </div>
-    <div class="flex justify-between">
-      <span class="text-slate-500">TTL Cache</span>
-      <span class="text-white">${health.cache_ttl_s ? health.cache_ttl_s + 's' : '—'}</span>
-    </div>
-    <div class="flex justify-between">
-      <span class="text-slate-500">API</span>
-      <span class="text-green-400 font-bold">● Online</span>
+    <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+      <div class="flex justify-between items-center">
+        <span class="text-slate-500">🔴 Redis Cache</span>
+        <span class="${redisColor} font-bold">${redisLabel}</span>
+      </div>
+      <div class="flex justify-between items-center">
+        <span class="text-slate-500">⏱ TTL Cache</span>
+        <span class="text-white font-bold">${health.cache_ttl_s ? health.cache_ttl_s + 's' : '—'}</span>
+      </div>
+      <div class="flex justify-between items-center">
+        <span class="text-slate-500">🌐 API Status</span>
+        <span class="text-green-400 font-bold">● Online</span>
+      </div>
+      <div class="flex justify-between items-center">
+        <span class="text-slate-500">⚙️ Pool Chrome</span>
+        <span class="text-blue-400 font-bold">${poolAvail}/${poolSize} livres</span>
+      </div>
+      <div class="flex justify-between items-center">
+        <span class="text-slate-500">🕐 Uptime</span>
+        <span class="text-cyan-400 font-bold">${uptime}</span>
+      </div>
+      <div class="flex justify-between items-center">
+        <span class="text-slate-500">🔑 Auth</span>
+        <span class="text-emerald-400 font-bold">${health.auth_enabled ? '● Ativo' : '○ Desabilit.'}</span>
+      </div>
     </div>`;
 }
 
-// ----------------------------------------------------------------- render errors
-function renderErrors(errors) {
-  const section = document.getElementById('error-section');
-  if (!errors || errors.length === 0) { section.style.display = 'none'; return; }
-  section.style.display = '';
-  document.getElementById('error-tbody').innerHTML = errors.map(e => `
+// ----------------------------------------------------------------- render access logs
+function renderAccessLogs(logs) {
+  document.getElementById('access-count').textContent = logs.length;
+  if (!logs.length) {
+    document.getElementById('access-tbody').innerHTML =
+      '<tr><td colspan="7" class="text-center text-slate-600 py-4">Nenhum acesso registrado ainda.</td></tr>';
+    return;
+  }
+  const statusColor = s => s < 300 ? 'text-green-400' : s < 400 ? 'text-yellow-400' : 'text-red-400';
+  const methodColor = m => ({ GET:'text-blue-400', POST:'text-emerald-400', DELETE:'text-red-400' }[m] || 'text-slate-400');
+  document.getElementById('access-tbody').innerHTML = logs.map(l => `
     <tr class="border-b border-slate-800 hover:bg-slate-800">
-      <td class="py-2 pr-4 text-red-300">${e.error_msg}</td>
-      <td class="py-2 pr-4 text-right text-orange-400 font-bold">${e.count}</td>
-      <td class="py-2 text-right text-slate-500">${fmt(e.last_seen)}</td>
+      <td class="py-1.5 pr-3 text-slate-500 whitespace-nowrap">${fmt(l.created_at).split(' ')[1]}</td>
+      <td class="py-1.5 pr-3 font-mono text-slate-300">${l.ip || '—'}</td>
+      <td class="py-1.5 pr-3 font-bold ${methodColor(l.method)}">${l.method}</td>
+      <td class="py-1.5 pr-3 text-slate-400 max-w-[220px] truncate" title="${l.path}">${l.path}</td>
+      <td class="py-1.5 pr-3 text-white font-bold">${l.placa || '<span class="text-slate-600">—</span>'}</td>
+      <td class="py-1.5 pr-3 text-right font-bold ${statusColor(l.status)}">${l.status}</td>
+      <td class="py-1.5 text-right text-slate-400">${l.duration_ms != null ? l.duration_ms.toFixed(0)+'ms' : '—'}</td>
     </tr>`).join('');
+}
+
+async function loadAccessLogs() {
+  try {
+    const logs = await fetchJSON('/api/access-logs?limit=200');
+    renderAccessLogs(logs);
+  } catch(e) { console.error('access-logs error:', e); }
+}
+
+function toggleAccessLog() {
+  const body = document.getElementById('access-body');
+  const btn  = document.getElementById('access-toggle-btn');
+  const hidden = body.style.display === 'none';
+  body.style.display = hidden ? '' : 'none';
+  btn.textContent = hidden ? '▼ Recolher' : '▶ Expandir';
+}
+
+// ----------------------------------------------------------------- restart RPA
+async function reiniciarRPA() {
+  if (!confirm('Reiniciar o serviço RPA no servidor?\nTodos os workers Chrome serão desligados e reiniciados (~20s de indisponibilidade).')) return;
+  const btn = document.getElementById('btn-reiniciar');
+  btn.disabled = true; btn.textContent = '⏳ Reiniciando...';
+  try {
+    const r = await fetch('/admin/restart', { method: 'POST' });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || r.statusText);
+    alert('✅ ' + data.message);
+  } catch(e) {
+    alert('Erro: ' + e.message);
+  } finally {
+    setTimeout(() => { btn.disabled = false; btn.innerHTML = '&#x21bb; Reiniciar RPA'; }, 25000);
+  }
 }
 
 // ----------------------------------------------------------------- render queries
 function renderQueries(queries) {
+  _queriesMap = {};
+  queries.forEach(q => { _queriesMap[q.req_id] = q; });
   document.getElementById('queries-count').textContent = queries.length + ' registros';
   if (!queries.length) {
     document.getElementById('queries-tbody').innerHTML =
@@ -445,16 +762,64 @@ async function selectQuery(reqId, placa, row) {
 
   try {
     const logs = await fetchJSON(`/api/queries/${reqId}/logs`);
-    if (!logs.length) {
-      document.getElementById('log-entries').innerHTML = '<p class="text-slate-600 italic">Sem logs registrados.</p>';
+    if (logs.length) {
+      document.getElementById('log-entries').innerHTML = logs.map(l => `
+        <div class="flex gap-2 py-0.5 border-b border-slate-800">
+          <span class="whitespace-nowrap text-slate-600">${fmt(l.created_at).split(' ')[1]}</span>
+          <span class="log-${l.level} font-bold w-16 flex-shrink-0">${l.level}</span>
+          <span class="text-slate-300 break-all">${l.message}</span>
+        </div>`).join('');
       return;
     }
-    document.getElementById('log-entries').innerHTML = logs.map(l => `
-      <div class="flex gap-2 py-0.5 border-b border-slate-800">
-        <span class="whitespace-nowrap text-slate-600">${fmt(l.created_at).split(' ')[1]}</span>
-        <span class="log-${l.level} font-bold w-16 flex-shrink-0">${l.level}</span>
-        <span class="text-slate-300 break-all">${l.message}</span>
-      </div>`).join('');
+
+    // Sem logs na tabela — monta fallback com dados da própria query
+    const q = _queriesMap[reqId];
+    if (!q) {
+      document.getElementById('log-entries').innerHTML = '<p class="text-slate-600 italic">Sem informações disponíveis.</p>';
+      return;
+    }
+    const scMap = { ok:'text-green-400', error:'text-red-400', not_found:'text-yellow-400',
+                    invalid_data:'text-orange-400', pending:'text-slate-400' };
+    const sc = scMap[q.status] || 'text-slate-400';
+    const entries = [];
+
+    // Linha 1: status + duração
+    entries.push(`<div class="flex gap-2 py-1 border-b border-slate-800">
+      <span class="whitespace-nowrap text-slate-600">${fmt(q.created_at).split(' ')[1]}</span>
+      <span class="font-bold w-16 flex-shrink-0 ${sc}">${(q.status||'').toUpperCase()}</span>
+      <span class="text-slate-400">Duração: <b class="text-white">${dur(q.duration_s)}</b> &nbsp;·&nbsp; Tentativas: <b class="text-white">${q.attempts || 1}</b></span>
+    </div>`);
+
+    // Linha 2: mensagem de erro completa
+    if (q.error_msg) {
+      entries.push(`<div class="flex gap-2 py-1 border-b border-slate-800">
+        <span class="whitespace-nowrap text-slate-600">${fmt(q.finished_at || q.created_at).split(' ')[1]}</span>
+        <span class="log-ERROR font-bold w-16 flex-shrink-0">ERROR</span>
+        <span class="text-red-300 break-all">${q.error_msg}</span>
+      </div>`);
+    }
+
+    // Linha 3: dados do veículo (se OK)
+    if (q.dados) {
+      try {
+        const d = JSON.parse(q.dados);
+        const lines = Object.entries(d)
+          .filter(([,v]) => v)
+          .map(([k,v]) => `<b class="text-slate-400">${k}</b>: <span class="text-green-400">${v}</span>`)
+          .join(' &nbsp;·&nbsp; ');
+        entries.push(`<div class="flex gap-2 py-1 border-b border-slate-800">
+          <span class="whitespace-nowrap text-slate-600">${fmt(q.finished_at).split(' ')[1]}</span>
+          <span class="log-INFO font-bold w-16 flex-shrink-0">INFO</span>
+          <span class="text-slate-300 break-all text-xs leading-5">${lines}</span>
+        </div>`);
+      } catch {}
+    }
+
+    if (!entries.length) {
+      const statusLabels = { pending:'AGUARDANDO', ok:'OK', not_found:'N/A', error:'ERRO', invalid_data:'N/A' };
+      entries.push(`<p class="text-slate-500 italic text-sm">Status: <b>${statusLabels[q.status] || q.status}</b> — consulta ainda n&atilde;o processada ou sem informa&ccedil;&otilde;es adicionais.</p>`);
+    }
+    document.getElementById('log-entries').innerHTML = entries.join('');
   } catch (e) {
     document.getElementById('log-entries').innerHTML = `<p class="text-red-400">Erro: ${e.message}</p>`;
   }
@@ -555,6 +920,35 @@ function showBatchToast(msg, ok = true) {
 }
 
 // ----------------------------------------------------------------- batch actions
+async function descobrirPlacas() {
+  const target = parseInt(document.getElementById('discover-target').value) || 50;
+  const formato = document.getElementById('discover-format').value;
+  const nome = document.getElementById('batch-nome').value.trim() || `Descoberta — meta ${target} OK`;
+  const btn = document.getElementById('btn-discover');
+  btn.disabled = true; btn.innerHTML = '&#x23f3; Calculando e enviando...';
+  document.getElementById('discover-hint').textContent = '';
+  try {
+    const r = await fetch('/batch/discover', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target_ok: target, formato, nome })
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || r.statusText);
+    const hitPct = Math.round((data.hit_rate_est || 0) * 100);
+    document.getElementById('discover-hint').innerHTML =
+      `<span class="text-slate-400">Taxa histórica: <b class="text-amber-400">${hitPct}%</b> &nbsp;·&nbsp; `+
+      `Consultando <b class="text-white">${data.total}</b> placas &nbsp;·&nbsp; `+
+      `${data.existing_excluded} já no banco excluídas</span>`;
+    showBatchToast(`🔍 Descoberta iniciada! Lote ${data.job_id} com ${data.total} placas — meta: ${target} válidas.`);
+    setTimeout(loadBatchJobs, 1000);
+  } catch(e) {
+    showBatchToast('Erro: ' + e.message, false);
+  } finally {
+    btn.disabled = false; btn.innerHTML = '&#x1f50d; Descobrir e Salvar no Banco';
+  }
+}
+
 async function criarManual() {
   if (!_generatedPlates.length) { showBatchToast('Gere as placas primeiro clicando em "Gerar Placas".', false); return; }
   const nome = document.getElementById('batch-nome').value.trim() || 'Lote Manual';
@@ -578,51 +972,79 @@ async function criarManual() {
   }
 }
 
-async function criarAgendado() {
-  if (!_generatedPlates.length) { showBatchToast('Gere as placas primeiro clicando em "Gerar Placas".', false); return; }
-  const dtLocal = document.getElementById('batch-schedule-dt').value;
-  if (!dtLocal) { showBatchToast('Selecione a data/hora para agendamento.', false); return; }
-  const nome         = document.getElementById('batch-nome').value.trim() || 'Lote Agendado';
-  const scheduled_at = new Date(dtLocal).toISOString();
-  const btn = document.getElementById('btn-schedule');
-  btn.disabled = true; btn.textContent = 'Agendando...';
-  try {
-    const r = await fetch('/batch/schedule', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ placas: _generatedPlates, nome, scheduled_at })
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.detail || r.statusText);
-    showBatchToast(`🗓️ Lote ${data.job_id} agendado com ${data.total} placas para ${new Date(data.scheduled_at).toLocaleString('pt-BR')}`);
-    clearPlacas();
-    setTimeout(loadBatchJobs, 500);
-  } catch(e) {
-    showBatchToast('Erro: ' + e.message, false);
-  } finally {
-    btn.disabled = false; btn.innerHTML = '&#x1f5d3;&#xfe0f; Criar Agendado';
-  }
-}
-
-async function cancelJob(job_id) {
-  if (!confirm(`Cancelar lote ${job_id}?`)) return;
+async function cancelJob(job_id, fromActive = false) {
+  if (!confirm(`Cancelar lote ${job_id}?\nTodas as placas pendentes serão descartadas.`)) return;
+  const btns = document.querySelectorAll(`[data-cancel-id="${job_id}"]`);
+  btns.forEach(b => { b.disabled = true; b.textContent = '...'; });
   try {
     const r = await fetch(`/batch/jobs/${job_id}`, { method: 'DELETE' });
     const data = await r.json();
     if (!r.ok) throw new Error(data.detail || r.statusText);
-    showBatchToast(`Lote ${job_id} cancelado.`);
+    showBatchToast(`✅ Lote ${job_id} cancelado.`);
     loadBatchJobs();
   } catch(e) {
     showBatchToast('Erro: ' + e.message, false);
+    btns.forEach(b => { b.disabled = false; b.textContent = '✕ Cancelar'; });
   }
+}
+
+function renderActiveJobs(jobs) {
+  const active = jobs.filter(j => ['executando','aguardando','pendente'].includes(j.status));
+  const countEl = document.getElementById('active-jobs-count');
+  const bodyEl  = document.getElementById('active-jobs-body');
+  if (!countEl || !bodyEl) return;
+
+  if (!active.length) {
+    countEl.textContent = 'nenhum ativo';
+    bodyEl.innerHTML = '<p class="text-xs text-slate-600 italic">Nenhum job ativo no momento.</p>';
+    return;
+  }
+
+  countEl.innerHTML = `<span class="chip" style="background:#451a03;color:#fbbf24;border:1px solid #92400e">${active.length} ativo${active.length > 1 ? 's' : ''}</span>`;
+
+  const statusClsMap = {
+    executando: { cls:'bs-executando', icon:'⚙️' },
+    aguardando: { cls:'bs-aguardando', icon:'⏳' },
+    pendente:   { cls:'bs-pendente',   icon:'▶' },
+  };
+
+  bodyEl.innerHTML = active.map(j => {
+    const pct = j.total > 0 ? Math.round(j.done / j.total * 100) : 0;
+    const sl  = statusClsMap[j.status] || { cls:'bs-pendente', icon:'?' };
+    const barColor = j.status === 'executando' ? 'bg-yellow-500' : 'bg-blue-500';
+    return `
+    <div class="flex items-center gap-3 py-2 border-b border-slate-800 last:border-0 flex-wrap">
+      <span class="${sl.cls} px-2 py-0.5 rounded-full text-xs whitespace-nowrap">${sl.icon} ${j.status}</span>
+      <span class="text-white font-bold text-xs whitespace-nowrap">#${j.job_id}</span>
+      <span class="text-slate-400 text-xs truncate max-w-[160px]" title="${j.nome}">${j.nome}</span>
+      <div class="flex items-center gap-2 flex-1 min-w-[140px]">
+        <div class="progress-bar-track flex-1">
+          <div class="progress-bar-fill ${barColor}" style="width:${pct}%"></div>
+        </div>
+        <span class="text-slate-400 text-xs whitespace-nowrap">${j.done}/${j.total} (${pct}%)</span>
+      </div>
+      <div class="flex gap-3 text-xs whitespace-nowrap">
+        <span class="text-green-400">✅ ${j.ok || 0}</span>
+        <span class="text-sky-400">🔵 ${j.not_found || 0}</span>
+        <span class="text-red-400">❌ ${j.errors || 0}</span>
+      </div>
+      <button data-cancel-id="${j.job_id}" onclick="cancelJob('${j.job_id}', true)"
+        class="px-3 py-1 rounded text-xs font-bold transition-colors flex-shrink-0"
+        style="background:#450a0a;border:1px solid #991b1b;color:#fca5a5"
+        onmouseover="this.style.background='#7f1d1d'" onmouseout="this.style.background='#450a0a'">
+        ✕ Cancelar
+      </button>
+    </div>`;
+  }).join('');
 }
 
 async function loadBatchJobs() {
   try {
     const jobs = await fetchJSON('/batch/jobs?limit=30');
     const tbody = document.getElementById('batch-tbody');
+    renderActiveJobs(jobs);
     if (!jobs.length) {
-      tbody.innerHTML = '<tr><td colspan="9" class="text-center text-slate-600 py-6">Nenhum lote criado ainda.</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-slate-600 py-6">Nenhum lote criado ainda.</td></tr>';
       return;
     }
     const statusLabels = {
@@ -653,12 +1075,12 @@ async function loadBatchJobs() {
         <td class="py-2 pr-3 text-right text-green-400 font-bold">${j.ok || 0}</td>
         <td class="py-2 pr-3 text-right text-sky-400">${j.not_found || 0}</td>
         <td class="py-2 pr-3 text-right text-red-400">${j.errors || 0}</td>
-        <td class="py-2 pr-3 text-right text-slate-500 whitespace-nowrap">${j.scheduled_at ? fmt(j.scheduled_at) : '—'}</td>
         <td class="py-2 text-right">
-          ${canCancel ? `<button onclick="cancelJob('${j.job_id}')" class="text-xs text-red-500 hover:text-red-300">✕</button>` : ''}
+          ${canCancel ? `<button data-cancel-id="${j.job_id}" onclick="cancelJob('${j.job_id}')" class="px-2 py-1 rounded text-xs font-bold transition-colors" style="background:#450a0a;border:1px solid #991b1b;color:#fca5a5" onmouseover="this.style.background='#7f1d1d'" onmouseout="this.style.background='#450a0a'">✕ Cancelar</button>` : '<span class="text-slate-700 text-xs">—</span>'}
         </td>
       </tr>`;
     }).join('');
+    renderActiveJobs(jobs);
   } catch(e) {
     console.error('Erro batch jobs:', e);
   }
@@ -668,32 +1090,40 @@ async function loadBatchJobs() {
 // ----------------------------------------------------------------- main refresh
 async function refresh() {
   document.getElementById('last-refresh').textContent = new Date().toLocaleTimeString('pt-BR');
-  try {
-    const [health, stats, errors, queries] = await Promise.all([
-      fetchJSON('/health'),
-      fetchJSON('/api/stats'),
-      fetchJSON('/api/errors'),
-      fetchJSON('/api/queries?limit=500'),
-    ]);
-    renderMetrics(stats, health);
-    renderPool(health);
-    renderInfra(health);
-    renderErrors(errors);
-    renderQueries(queries);
 
-    // re-load log panel se estava selecionado
-    if (_selectedReqId) {
-      const q = queries.find(r => r.req_id === _selectedReqId);
-      if (q) {
-        const row = document.querySelector(`tr[onclick*="${_selectedReqId}"]`);
-        if (row) row.classList.add('row-selected');
-      }
-    }
-  } catch (e) {
+  let health = {}, stats = {}, queries = [];
+
+  // fetch all three in parallel — individual failures don't block the rest
+  await Promise.all([
+    fetchJSON('/health').then(d  => { health  = d; }).catch(e => console.warn('health error:', e)),
+    fetchJSON('/api/stats').then(d => { stats   = d; }).catch(e => console.warn('stats error:', e)),
+    fetchJSON('/api/queries?limit=500').then(d => { queries = d; }).catch(e => console.warn('queries error:', e)),
+  ]);
+
+  try { renderMetrics(stats, health);     } catch(e) { console.error('renderMetrics:', e); }
+  try { renderSystemHealth(stats, health);} catch(e) { console.error('renderSystemHealth:', e); }
+  try { renderPool(health);               } catch(e) { console.error('renderPool:', e); }
+  try { renderInfra(health);              } catch(e) { console.error('renderInfra:', e); }
+  try { renderTimeline(queries);          } catch(e) { console.error('renderTimeline:', e); }
+  try { renderErrors();                   } catch(e) {}
+  try { if (queries.length) renderQueries(queries); } catch(e) { console.error('renderQueries:', e); }
+  try { loadAccessLogs();                 } catch(e) { console.error('loadAccessLogs:', e); }
+
+  // dot fallback (renderPool sets it but health might have been empty)
+  if (!health.status) {
     document.getElementById('status-dot').className = 'pulse-dot bg-red-400';
-    console.error('Refresh error:', e);
   }
-  // Atualiza lotes se hover algum em execução
+
+  // re-select query row
+  if (_selectedReqId && queries.length) {
+    const q = queries.find(r => r.req_id === _selectedReqId);
+    if (q) {
+      const row = document.querySelector(`tr[onclick*="${_selectedReqId}"]`);
+      if (row) row.classList.add('row-selected');
+    }
+  }
+
+  // auto-advance active batch jobs
   const rows = document.querySelectorAll('#batch-tbody tr');
   const hasActive = Array.from(rows).some(r => r.innerHTML.includes('executando') || r.innerHTML.includes('aguardando'));
   if (hasActive) loadBatchJobs();
@@ -713,13 +1143,9 @@ function setupAutoRefresh() {
 // ----------------------------------------------------------------- init
 refresh();
 loadBatchJobs();
+loadAccessLogs();
 setupAutoRefresh();
 
-// Seta datetime mínimo para agendamento (agora + 5min)
-const dtInput = document.getElementById('batch-schedule-dt');
-const now = new Date(Date.now() + 5 * 60000);
-dtInput.min = now.toISOString().slice(0,16);
-dtInput.value = now.toISOString().slice(0,16);
 </script>
 </body>
 </html>

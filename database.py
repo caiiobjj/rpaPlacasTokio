@@ -80,6 +80,18 @@ def init_db(path: str = _DB_PATH) -> None:
             CREATE INDEX IF NOT EXISTS idx_logs_req_id        ON logs(req_id);
             CREATE INDEX IF NOT EXISTS idx_batch_results_job  ON batch_results(job_id);
             CREATE INDEX IF NOT EXISTS idx_batch_results_placa ON batch_results(placa);
+
+            CREATE TABLE IF NOT EXISTS access_logs (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                ip          TEXT,
+                method      TEXT,
+                path        TEXT,
+                status      INTEGER,
+                duration_ms REAL,
+                placa       TEXT,
+                created_at  TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_access_logs_created ON access_logs(created_at);
         """)
 
 
@@ -334,6 +346,36 @@ def get_database_placas(limit: int = 5000) -> list:
             """SELECT placa, veiculo, dados
                FROM batch_results WHERE status='ok'
                ORDER BY processed_at DESC LIMIT ?""",
+            (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Access Logs
+# ---------------------------------------------------------------------------
+
+def insert_access_log(
+    ip: str,
+    method: str,
+    path: str,
+    status: int,
+    duration_ms: float,
+    placa: Optional[str] = None,
+) -> None:
+    with _lock, _connect() as con:
+        con.execute(
+            """INSERT INTO access_logs (ip, method, path, status, duration_ms, placa, created_at)
+               VALUES (?,?,?,?,?,?,?)""",
+            (ip, method.upper(), path, status, round(duration_ms, 1), placa, _now()),
+        )
+
+
+def get_access_logs(limit: int = 200) -> list:
+    with _connect() as con:
+        rows = con.execute(
+            """SELECT ip, method, path, status, duration_ms, placa, created_at
+               FROM access_logs ORDER BY id DESC LIMIT ?""",
             (limit,),
         ).fetchall()
     return [dict(r) for r in rows]

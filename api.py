@@ -26,8 +26,20 @@ import asyncio
 import json
 import logging
 import os
+import re as _re
+import subprocess as _subprocess
 import traceback
 import uuid
+import random as _random
+import string as _string
+import math as _math
+import os as _os
+
+try:
+    import urllib3.exceptions as _urllib3_exc
+except ImportError:
+    _urllib3_exc = None
+
 from typing import List, Optional
 from urllib.parse import quote as _urlquote
 
@@ -58,10 +70,10 @@ _API_KEY = os.getenv("API_KEY", "").strip()
 
 
 def _check_api_key(x_api_key: Optional[str]) -> None:
-    if not _API_KEY:
-        return
-    if x_api_key != _API_KEY:
-        raise HTTPException(status_code=401, detail="X-API-Key inválida ou ausente.")
+    # Auth is fully handled by _AuthMiddleware (session cookie OR X-API-Key header).
+    # This endpoint-level check is intentionally a no-op to avoid rejecting
+    # cookie-authenticated browser sessions that don't send X-API-Key.
+    pass
 
 
 # ---------------------------------------------------------------------------
@@ -170,6 +182,41 @@ if _os.path.isdir("static"):
 # ---------------------------------------------------------------------------
 _OPEN_PATHS = {"/login", "/logout"}
 
+# Paths que NÃO devem gerar access_log (assets, health checks de alta frequência)
+_NO_LOG_PATHS = {"/", "/health", "/pool/status", "/api/stats",
+                 "/api/queries", "/api/errors", "/batch/jobs",
+                 "/api/access-logs"}
+_PLACA_RE = _re.compile(r'^/placa/([A-Za-z0-9]+)')
+
+
+class _AccessLogMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        import time as _t
+        t0 = _t.time()
+        response = await call_next(request)
+        path = request.url.path
+        if (not path.startswith("/static/")
+                and path not in _NO_LOG_PATHS
+                and path not in _OPEN_PATHS):
+            dur = (_t.time() - t0) * 1000
+            ip = (request.headers.get("x-forwarded-for") or
+                  (request.client.host if request.client else "?"))
+            ip = ip.split(",")[0].strip()
+            m = _PLACA_RE.match(path)
+            placa = m.group(1).upper() if m else None
+            try:
+                database.insert_access_log(
+                    ip=ip,
+                    method=request.method,
+                    path=path,
+                    status=response.status_code,
+                    duration_ms=dur,
+                    placa=placa,
+                )
+            except Exception:
+                pass
+        return response
+
 
 class _AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
@@ -177,6 +224,11 @@ class _AuthMiddleware(BaseHTTPMiddleware):
         # rotas abertas e assets estáticos são liberados
         if path in _OPEN_PATHS or path.startswith("/static/"):
             return await call_next(request)
+        # Requisições com X-API-Key válida passam sem cookie (acesso programático / n8n)
+        if _API_KEY:
+            api_key_header = request.headers.get("x-api-key", "")
+            if api_key_header == _API_KEY:
+                return await call_next(request)
         token = request.cookies.get(_auth.COOKIE_NAME, "")
         if not _auth.validate_session(token):
             logger.info(f"[auth] Acesso negado em {path} — redirecionando para /login")
@@ -185,6 +237,7 @@ class _AuthMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(_AuthMiddleware)
+app.add_middleware(_AccessLogMiddleware)
 
 
 @app.on_event("startup")
@@ -222,6 +275,64 @@ class BatchScheduleRequest(BaseModel):
     nome: Optional[str] = "Lote Agendado"
 
 
+class BatchDiscoverRequest(BaseModel):
+    target_ok: int = 50                    # quantas placas válidas queremos encontrar (sem limite)
+    formato: str = "both"                  # old | mercosul | both
+    nome: Optional[str] = None
+
+
+# ---------------------------------------------------------------------------
+# Helper: gerador de placas aleatórias (espelho do frontend)
+# ---------------------------------------------------------------------------
+_LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+_DIGITS  = "0123456789"
+
+def _gen_plates_random(qty: int, formato: str, exclude: set) -> list:
+    """Gera placas aleatórias no formato solicitado, excluindo as já conhecidas."""
+    def _old():
+        return ("".join(_random.choices(_LETTERS, k=3))
+                + "".join(_random.choices(_DIGITS, k=4)))
+
+    def _mercosul():
+        return ("".join(_random.choices(_LETTERS, k=3))
+                + _random.choice(_DIGITS)
+                + _random.choice(_LETTERS)
+                + "".join(_random.choices(_DIGITS, k=2)))
+
+    seen = set(exclude)
+    plates: list = []
+    max_attempts = qty * 50   # mais tentativas para lotes grandes
+    attempts = 0
+    while len(plates) < qty and attempts < max_attempts:
+        attempts += 1
+        if formato == "old":
+            p = _old()
+        elif formato == "mercosul":
+            p = _mercosul()
+        else:
+            p = _old() if _random.random() < 0.5 else _mercosul()
+        if p not in seen:
+            seen.add(p)
+            plates.append(p)
+    return plates
+
+
+def _is_chrome_crash(exc: Exception) -> bool:
+    """Retorna True quando o erro indica que o Chrome foi morto (OOM Killer ou crash)."""
+    msg = str(exc)
+    if 'Connection refused' in msg or 'Max retries exceeded' in msg:
+        return True
+    if _urllib3_exc:
+        cause = getattr(exc, '__cause__', None) or getattr(exc, '__context__', None)
+        while cause:
+            if isinstance(cause, (_urllib3_exc.MaxRetryError,
+                                  _urllib3_exc.NewConnectionError,
+                                  ConnectionRefusedError)):
+                return True
+            cause = getattr(cause, '__cause__', None) or getattr(cause, '__context__', None)
+    return False
+
+
 # ---------------------------------------------------------------------------
 # Batch: worker assíncrono
 # ---------------------------------------------------------------------------
@@ -243,10 +354,11 @@ async def _run_batch_job(job_id: str, placas: List[str]) -> None:
     async def _process_one(placa: str) -> None:
         async with sem:
             t0 = _time.time()
-            # req_id com prefixo "b" identifica origem de lote na tela de Consultas Recentes
             req_id = "b" + uuid.uuid4().hex[:7]
             database.insert_query(req_id, placa)
-            try:
+            max_attempts = 3
+            for attempt_num in range(1, max_attempts + 1):
+              try:
                 def _sync_query():
                     with _pool.acquire(timeout=300) as driver:
                         dados = query_plate(driver, placa)
@@ -260,22 +372,37 @@ async def _run_batch_job(job_id: str, placas: List[str]) -> None:
                 dados = await loop.run_in_executor(None, _sync_query)
                 duration = round(_time.time() - t0, 2)
                 _cache_set(placa, dados)
+                _log(req_id, "INFO", f"Consulta OK em {duration}s — {dados.get('veiculo','')}")
                 database.update_batch_result(job_id, placa, "ok", dados=dados, duration_s=duration)
                 database.finish_query(req_id, status="ok", cached=False,
-                                      attempts=1, duration_s=duration, dados=dados)
+                                      attempts=attempt_num, duration_s=duration, dados=dados)
+                return  # sucesso
 
-            except (PlacaNaoEncontradaError, DadosVaziosError) as e:
+              except (PlacaNaoEncontradaError, DadosVaziosError) as e:
                 duration = round(_time.time() - t0, 2)
+                _log(req_id, "WARNING", f"Placa não encontrada no portal: {e}")
                 database.update_batch_result(job_id, placa, "not_found", error_msg=str(e), duration_s=duration)
-                database.finish_query(req_id, status="not_found", attempts=1,
+                database.finish_query(req_id, status="not_found", attempts=attempt_num,
                                       duration_s=duration, error_msg=str(e)[:200])
+                return  # resposta definitiva, não retentar
 
-            except Exception as e:
+              except Exception as e:
+                if _is_chrome_crash(e) and attempt_num < max_attempts:
+                    wait_s = 15 * attempt_num
+                    logger.warning(f"[batch:{job_id}] Chrome morto para {placa} — aguardando {wait_s}s e retentando (tentativa {attempt_num}/{max_attempts})")
+                    _log(req_id, "WARNING", f"Chrome foi encerrado (OOM?) — retry {attempt_num}/{max_attempts} em {wait_s}s")
+                    await asyncio.sleep(wait_s)
+                    continue  # próxima tentativa
+
                 duration = round(_time.time() - t0, 2)
+                tb = traceback.format_exc()
                 logger.error(f"[batch:{job_id}] Erro em {placa}: {e}")
+                _log(req_id, "ERROR", f"Falha na consulta: {e}")
+                database.insert_log(req_id, "DEBUG", tb)
                 database.update_batch_result(job_id, placa, "error", error_msg=str(e)[:200], duration_s=duration)
-                database.finish_query(req_id, status="error", attempts=1,
+                database.finish_query(req_id, status="error", attempts=attempt_num,
                                       duration_s=duration, error_msg=str(e)[:200])
+                return
 
     tasks = [asyncio.create_task(_process_one(p)) for p in placas]
     await asyncio.gather(*tasks, return_exceptions=True)
@@ -461,6 +588,34 @@ def api_query_logs(req_id: str, x_api_key: Optional[str] = Header(default=None))
     return database.get_query_logs(req_id)
 
 
+@app.get("/api/access-logs")
+def api_access_logs(
+    limit: int = Query(200, ge=1, le=1000),
+    x_api_key: Optional[str] = Header(default=None),
+):
+    _check_api_key(x_api_key)
+    return database.get_access_logs(limit=limit)
+
+
+@app.post("/admin/restart")
+async def admin_restart(x_api_key: Optional[str] = Header(default=None)):
+    """Reinicia o serviço rpa-tokio via systemctl (resposta enviada antes do kill)."""
+    _check_api_key(x_api_key)
+    logger.warning("[admin] Reinício manual solicitado via painel.")
+    async def _delayed_restart():
+        await asyncio.sleep(1.5)
+        try:
+            _subprocess.Popen(
+                ["systemctl", "restart", "rpa-tokio"],
+                stdout=_subprocess.DEVNULL,
+                stderr=_subprocess.DEVNULL,
+            )
+        except Exception as e:
+            logger.error(f"[admin] Falha ao reiniciar: {e}")
+    asyncio.create_task(_delayed_restart())
+    return {"ok": True, "message": "Reiniciando em 1.5s... aguarde ~20s para o pool recarregar."}
+
+
 @app.get("/api/errors")
 def api_errors(x_api_key: Optional[str] = Header(default=None)):
     _check_api_key(x_api_key)
@@ -508,6 +663,57 @@ async def batch_schedule(body: BatchScheduleRequest, x_api_key: Optional[str] = 
     job_id = uuid.uuid4().hex[:8]
     database.insert_batch_job(job_id, body.nome or "Lote Agendado", placas, scheduled_at=body.scheduled_at)
     return {"ok": True, "job_id": job_id, "total": len(placas), "scheduled_at": body.scheduled_at}
+
+
+@app.post("/batch/discover")
+async def batch_discover(body: BatchDiscoverRequest, x_api_key: Optional[str] = Header(default=None)):
+    """
+    Gera placas aleatórias automaticamente e submete um lote com quantidade
+    suficiente para atingir a meta de placas válidas (target_ok).
+    Calcula a quantidade com base na taxa histórica de sucesso do banco.
+    """
+    _check_api_key(x_api_key)
+    if _pool is None:
+        raise HTTPException(status_code=503, detail="Pool não inicializado.")
+    if body.target_ok < 1:
+        raise HTTPException(status_code=400, detail="target_ok deve ser ao menos 1.")
+
+    # Exclui placas que já temos com sucesso no banco
+    existing_ok = {r["placa"] for r in database.get_database_placas(limit=100_000)}
+
+    # Estima taxa de acerto histórica (ok / total_finalizados)
+    stats = database.get_stats()
+    total_done = (stats.get("ok") or 0) + (stats.get("errors") or 0) + (stats.get("invalid") or 0)
+    ok_count   = stats.get("ok") or 0
+    hit_rate   = (ok_count / total_done) if total_done >= 20 else 0.40   # default 40%
+    hit_rate   = max(0.10, min(0.95, hit_rate))                          # clamp 10–95%
+
+    # Gera placas com buffer de 1.8× para compensar erros e não-encontradas (sem limite)
+    needed = _math.ceil(body.target_ok / hit_rate * 1.8)
+    placas = _gen_plates_random(needed, body.formato, existing_ok)
+
+    if not placas:
+        raise HTTPException(
+            status_code=400,
+            detail="Não foi possível gerar placas novas (banco já inclui todos os resultados conhecidos)."
+        )
+
+    job_id = uuid.uuid4().hex[:8]
+    nome = body.nome or f"Descoberta — meta {body.target_ok} OK"
+    database.insert_batch_job(job_id, nome, placas, scheduled_at=None)
+    asyncio.create_task(_run_batch_job(job_id, placas))
+    logger.info(
+        f"[discover:{job_id}] Meta={body.target_ok} OK | "
+        f"hit_rate_est={hit_rate:.0%} | gerando {len(placas)} placas"
+    )
+    return {
+        "ok": True,
+        "job_id": job_id,
+        "total": len(placas),
+        "target_ok": body.target_ok,
+        "hit_rate_est": round(hit_rate, 2),
+        "existing_excluded": len(existing_ok),
+    }
 
 
 @app.get("/batch/jobs")
@@ -622,10 +828,18 @@ def get_por_placa(
         except Exception as e:
             last_exc = e
             tb = traceback.format_exc()
-            _log(req_id, "ERROR", f"Falha na tentativa {attempt}: {e}")
-            database.insert_log(req_id, "DEBUG", tb)
-            if attempt < MAX_RETRIES:
-                _log(req_id, "INFO", f"Retentando ({attempt + 1}/{MAX_RETRIES})...")
+            if _is_chrome_crash(e):
+                wait_s = 15 * attempt
+                _log(req_id, "WARNING", f"Chrome foi encerrado (OOM?) na tentativa {attempt} — aguardando {wait_s}s para pool recriar driver...")
+                database.insert_log(req_id, "DEBUG", tb)
+                if attempt < MAX_RETRIES:
+                    _time.sleep(wait_s)
+                    _log(req_id, "INFO", f"Retentando ({attempt + 1}/{MAX_RETRIES}) após crash do Chrome...")
+            else:
+                _log(req_id, "ERROR", f"Falha na tentativa {attempt}: {e}")
+                database.insert_log(req_id, "DEBUG", tb)
+                if attempt < MAX_RETRIES:
+                    _log(req_id, "INFO", f"Retentando ({attempt + 1}/{MAX_RETRIES})...")
 
     if isinstance(last_exc, (PlacaNaoEncontradaError, DadosVaziosError)):
         database.finish_query(

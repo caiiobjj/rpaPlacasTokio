@@ -6,7 +6,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service as ChromeService
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
 import shutil
 import requests
 import re
@@ -66,6 +66,17 @@ def build_driver(headless: Optional[bool] = None) -> webdriver.Chrome:
         options.add_argument('--lang=pt-BR')
         options.add_argument('--remote-allow-origins=*')
         options.add_argument('--disable-blink-features=AutomationControlled')
+        # Redução de consumo de memória por instância
+        options.add_argument('--disable-background-networking')
+        options.add_argument('--disable-sync')
+        options.add_argument('--disable-translate')
+        options.add_argument('--disable-client-side-phishing-detection')
+        options.add_argument('--disable-hang-monitor')
+        options.add_argument('--disable-popup-blocking')
+        options.add_argument('--no-first-run')
+        options.add_argument('--metrics-recording-only')
+        options.add_argument('--renderer-process-limit=1')          # 1 renderer por Chrome
+        options.add_argument('--js-flags=--max-old-space-size=256')  # limita heap JS a 256MB
         options.add_experimental_option('excludeSwitches', ['enable-automation', 'enable-logging'])
         options.add_experimental_option('useAutomationExtension', False)
         # Usa chromedriver do sistema (instalado em /usr/local/bin) ou deixa Selenium Manager encontrar
@@ -120,15 +131,18 @@ def login(driver: webdriver.Chrome, timeout: int = 60) -> None:
 def is_session_alive(driver: webdriver.Chrome) -> bool:
     """Verifica se o driver ainda está ativo e a sessão no portal ainda é válida."""
     try:
-        url = driver.current_url
-        # Tela de login explícita — sessão expirou
-        if 'ssoportais3.tokiomarine.com.br' in url and '#login' in url:
+        # Coleta URL + title num único round-trip JS
+        result = driver.execute_script(
+            "return {url: document.location.href, title: document.title};"
+        ) or {}
+        url   = result.get('url',   '') or ''
+        title = result.get('title', '') or ''
+        if 'ssoportais3.tokiomarine.com.br' in url:
             return False
-        # Dentro do portal Tokio Marine — sessão válida
+        if not url or url in ('about:blank', 'data:,'):
+            return False
         if 'tokiomarine.com.br' not in url:
             return False
-        # Página deve ter título (Angular carregado)
-        title = driver.title or ''
         if not title.strip():
             return False
         return True
@@ -326,7 +340,7 @@ def _click_pesquisar_if_present(driver: webdriver.Chrome, context_el=None):
 
 
 def _maybe_select_first_vehicle_in_modal(driver: webdriver.Chrome, timeout: int = 20) -> None:
-    wait = WebDriverWait(driver, timeout)
+    wait = WebDriverWait(driver, timeout, poll_frequency=0.15)  # detecta modal ~150ms após aparecer
     try:
         # Aguarda modal aparecer (título Lista de Veículos)
         wait.until(
@@ -334,17 +348,11 @@ def _maybe_select_first_vehicle_in_modal(driver: webdriver.Chrome, timeout: int 
                 (By.XPATH, "//*[contains(.,'Lista de Ve')]")
             )
         )
-        # Seleciona a primeira linha — tenta XPathS específicos primeiro
-        row_xpaths = [
-            "(//div[contains(@class,'modal') and contains(@style,'block')]//table//tbody//tr)",
-            "(//div[contains(@class,'modal-body')]//table//tbody//tr)",
-            "(//table//tbody//tr)",
-        ]
-        rows = []
-        for xp in row_xpaths:
-            rows = driver.find_elements(By.XPATH, xp)
-            if rows:
-                break
+        # Seleciona a primeira linha — CSS é mais rápido que XPath
+        rows = driver.find_elements(
+            By.CSS_SELECTOR,
+            '.modal[style*="block"] table tbody tr, .modal-body table tbody tr, table tbody tr'
+        )
         # Pula linhas vazias (header rows ou separadores)
         real_rows = [r for r in rows if r.text.strip()]
         row = real_rows[0] if real_rows else (rows[0] if rows else None)
@@ -353,10 +361,10 @@ def _maybe_select_first_vehicle_in_modal(driver: webdriver.Chrome, timeout: int 
             driver.execute_script("arguments[0].click();", row)
             # Aguarda modal fechar ou formulário atualizar
             try:
-                WebDriverWait(driver, TIMEOUT_PAGE).until(
+                WebDriverWait(driver, TIMEOUT_PAGE, poll_frequency=0.15).until(
                     lambda d: not d.find_elements(
-                        By.XPATH,
-                        "//div[contains(@class,'modal') and contains(@style,'block')]"
+                        By.CSS_SELECTOR,
+                        '.modal[style*="block"]'
                     )
                 )
             except TimeoutException:
@@ -401,7 +409,16 @@ def _read_value(driver: webdriver.Chrome, label: str) -> Optional[str]:
 
 
 def _find_cotador_iframe(driver: webdriver.Chrome):
-    """Encontra o iframe do CotadorAutoService pela URL src, com fallback para iframe[0]."""
+    """Encontra o iframe do CotadorAutoService via JS (1 round-trip vs N+1)."""
+    try:
+        el = driver.execute_script(
+            "return document.querySelector('iframe[src*=\"CotadorAutoService\"]') || null;"
+        )
+        if el is not None:
+            return el
+    except Exception:
+        pass
+    # Fallback síncrono caso JS não retorne WebElement
     iframes = driver.find_elements(By.TAG_NAME, 'iframe')
     for f in iframes:
         if 'CotadorAutoService' in (f.get_attribute('src') or ''):
@@ -417,11 +434,12 @@ def try_reuse_form(driver: webdriver.Chrome) -> bool:
     """
     try:
         driver.switch_to.default_content()
-        cotador = _find_cotador_iframe(driver)
+        cotador = _find_cotador_iframe(driver)  # já otimizado com JS
         if cotador is None:
             return False
         driver.switch_to.frame(cotador)
-        found = bool(driver.find_elements(By.CSS_SELECTOR, 'input.placa'))
+        # Único execute_script em vez de find_elements + loop
+        found = bool(driver.execute_script("return !!document.querySelector('input.placa');"))
         driver.switch_to.default_content()
         return found
     except Exception:
@@ -452,9 +470,21 @@ def reload_cotador_iframe(driver: webdriver.Chrome, timeout: int = 30) -> None:
         "  }"
         "}"
     )
-    wait = WebDriverWait(driver, timeout)
+    wait = WebDriverWait(driver, timeout, poll_frequency=0.1)
 
     def _cotador_ready(drv):
+        # JS querySelector evita N get_attribute round-trips por ciclo de poll
+        try:
+            ok = drv.execute_script(
+                "var f=document.querySelector('iframe[src*=\"CotadorAutoService\"]');"
+                "if(!f)return false;"
+                "try{return !!(f.contentDocument&&f.contentDocument.querySelector('input.placa'));}catch(e){return false;}"
+            )
+            if ok:
+                return True
+        except Exception:
+            pass
+        # Fallback: switch_to.frame (necessário se JS cross-frame bloqueado)
         try:
             for f in drv.find_elements(By.TAG_NAME, 'iframe'):
                 if 'CotadorAutoService' in (f.get_attribute('src') or ''):
@@ -479,7 +509,7 @@ def query_plate(driver: webdriver.Chrome, placa: str, timeout: int = 60) -> Dict
     Localiza o CotadorAutoService iframe pela URL src para robustez.
     """
     from selenium.webdriver.common.keys import Keys
-    wait = WebDriverWait(driver, timeout)
+    wait = WebDriverWait(driver, timeout, poll_frequency=0.15)  # poll 150ms vs 500ms padrão
 
     placa_txt = (placa or '').strip().upper()
     if not placa_txt:
@@ -495,69 +525,99 @@ def query_plate(driver: webdriver.Chrome, placa: str, timeout: int = 60) -> Dict
     def _cotador_iframe_present(drv):
         return _find_cotador_iframe(drv) is not None
 
-    wait.until(_cotador_iframe_present)
+    try:
+        wait.until(_cotador_iframe_present)
+    except TimeoutException:
+        # Iframe não apareceu — verifica se a sessão SSO ainda está viva.
+        try:
+            driver.switch_to.default_content()
+        except Exception:
+            pass
+
+        session_ok = is_session_alive(driver)
+        if not session_ok:
+            # Sessão expirada: faz login completo antes de redirecionar
+            print('[query_plate] Sessão SSO expirada — refazendo login antes de re-navegar.', flush=True)
+            try:
+                login(driver, timeout=90)
+            except Exception as login_err:
+                print(f'[query_plate] Falha no re-login: {login_err}', flush=True)
+        else:
+            print('[query_plate] Sessão aparenta estar viva, mas iframe não carregou — re-navegando.', flush=True)
+
+        go_to_nova_cotacao(driver, timeout=90)
+        try:
+            wait2 = WebDriverWait(driver, 90, poll_frequency=0.15)
+            wait2.until(_cotador_iframe_present)
+        except TimeoutException:
+            raise TimeoutException(
+                'CotadorAutoService iframe não apareceu após re-navegação'
+                + (' com re-login' if not session_ok else '')
+                + '. Portal pode estar indisponível.'
+            )
+
     cotador_frame = _find_cotador_iframe(driver)
     if cotador_frame is None:
         raise RuntimeError('CotadorAutoService iframe não encontrado')
     driver.switch_to.frame(cotador_frame)
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input.placa')))
-    plate_input = driver.find_element(By.CSS_SELECTOR, 'input.placa')
 
-    # Scrola e foca (JS click para ignorar qualquer overlay que intercepte o clique normal)
+    def _get_plate_input():
+        """Busca o input.placa novamente — necessário quando Angular re-renderiza o elemento."""
+        return driver.find_element(By.CSS_SELECTOR, 'input.placa')
+
+    plate_input = _get_plate_input()
+
+    def _retry_stale(fn, retries=3):
+        """Executa fn(); se StaleElementReferenceException, recria plate_input e tenta de novo."""
+        nonlocal plate_input
+        for i in range(retries):
+            try:
+                return fn()
+            except StaleElementReferenceException:
+                if i < retries - 1:
+                    time.sleep(0.3)
+                    plate_input = _get_plate_input()
+                else:
+                    raise
+
+    # Prepara campo em 1 round-trip: scroll + unlock + clear + focus + dispara eventos
     try:
-        driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", plate_input)
-    except Exception:
-        pass
-    # Remove readonly/disabled que o Angular pode ter adicionado após seleção de veículo
-    try:
-        driver.execute_script(
-            "arguments[0].removeAttribute('readonly');"
-            "arguments[0].removeAttribute('disabled');",
+        _retry_stale(lambda: driver.execute_script(
+            "var el=arguments[0];"
+            "el.scrollIntoView({block:'center'});"
+            "el.removeAttribute('readonly');"
+            "el.removeAttribute('disabled');"
+            "el.value='';"
+            "el.dispatchEvent(new Event('input',{bubbles:true}));"
+            "el.dispatchEvent(new Event('change',{bubbles:true}));"
+            "el.focus();",
             plate_input
-        )
+        ))
     except Exception:
         pass
-    try:
-        driver.execute_script("arguments[0].click();", plate_input)
-    except Exception:
-        plate_input.click()
 
-    # Limpa via JS (mais robusto que CTRL+A quando o campo está em estado angular bloqueado)
+    # Digita via send_keys para eventos nativos do navegador (Angular detecta teclado)
     try:
-        driver.execute_script(
-            "arguments[0].value = '';"
-            " arguments[0].dispatchEvent(new Event('input',{bubbles:true}));"
-            " arguments[0].dispatchEvent(new Event('change',{bubbles:true}));",
-            plate_input
-        )
+        _retry_stale(lambda: plate_input.send_keys(placa_txt))
     except Exception:
         pass
-    try:
-        plate_input.send_keys(Keys.CONTROL, 'a')
-        plate_input.send_keys(Keys.DELETE)
-    except Exception:
-        pass  # JS clear já limpou o campo acima
 
-    # Digita a placa via send_keys (fallback: JS já definiu o valor acima se falhar)
+    # Confirma valor e dispara eventos Angular — 1 round-trip
     try:
-        plate_input.send_keys(placa_txt)
-    except Exception:
-        pass  # JS dispatch abaixo garante o valor correto mesmo sem send_keys
-
-    # Dispara eventos para o framework JS
-    try:
-        driver.execute_script(
-            "const e=arguments[0]; e.value=arguments[1];"
-            " e.dispatchEvent(new Event('input',{bubbles:true}));"
-            " e.dispatchEvent(new Event('change',{bubbles:true}));",
+        _retry_stale(lambda: driver.execute_script(
+            "var el=arguments[0],v=arguments[1];"
+            "if(el.value!==v){el.value=v;}"
+            "el.dispatchEvent(new Event('input',{bubbles:true}));"
+            "el.dispatchEvent(new Event('change',{bubbles:true}));",
             plate_input, placa_txt
-        )
+        ))
     except Exception:
         pass
 
     # Passo 1: TAB dispara o lookup do chassis no backend (botão Pesquisar fica disabled até então)
     try:
-        plate_input.send_keys(Keys.TAB)
+        _retry_stale(lambda: plate_input.send_keys(Keys.TAB))
     except Exception:
         # Fallback: ActionChains com TAB
         from selenium.webdriver.common.action_chains import ActionChains
@@ -567,9 +627,11 @@ def query_plate(driver: webdriver.Chrome, placa: str, timeout: int = 60) -> Dict
             pass
     # Aguarda o botão Pesquisar ser habilitado (backend preenche chassi em background)
     try:
-        WebDriverWait(driver, TIMEOUT_MODAL).until(
-            lambda d: d.find_elements(By.CSS_SELECTOR, 'button.btn-pesquisar-veiculos:not([disabled])')
-            or d.find_elements(By.CSS_SELECTOR, 'a.btn-pesquisar-cotacao')
+        WebDriverWait(driver, TIMEOUT_MODAL, poll_frequency=0.15).until(
+            lambda d: d.execute_script(
+                "return !!(document.querySelector('button.btn-pesquisar-veiculos:not([disabled])')"
+                "|| document.querySelector('a.btn-pesquisar-cotacao'));"
+            )
         )
     except TimeoutException:
         pass  # tenta clicar mesmo assim
@@ -601,18 +663,14 @@ def query_plate(driver: webdriver.Chrome, placa: str, timeout: int = 60) -> Dict
 
     # Aguarda o campo veiculo/modelo ser preenchido (indica seleção bem-sucedida)
     def _vehicle_info_populated(drv):
-        # Verifica se o SELECT de modelo tem um valor selecionado
-        modelo_els = drv.find_elements(By.CSS_SELECTOR, 'select[name*=".modelo."]')
-        if modelo_els:
-            try:
-                text = modelo_els[0].find_element(By.CSS_SELECTOR, 'option:checked').text.strip()
-                if text and text.lower() not in ('selecione', ''):
-                    return True
-            except Exception:
-                pass
-        # Fallback: chassi preenchido
-        chassi_els = drv.find_elements(By.CSS_SELECTOR, 'input[name*="chassi"]')
-        return bool(chassi_els and (chassi_els[0].get_attribute('value') or '').strip())
+        # Único execute_script em vez de 3+ find_elements + get_attribute round-trips
+        return drv.execute_script(
+            "var sel=document.querySelector('select[name*=\".modelo.\"]');"
+            "if(sel){var o=sel.querySelector('option:checked');"
+            "if(o&&o.text&&['selecione','-selecione-','','selecionar'].indexOf(o.text.trim().toLowerCase())===-1)return true;}"
+            "var c=document.querySelector('input[name*=\"chassi\"]');"
+            "return !!(c&&(c.value||'').trim());"
+        )
 
     try:
         wait.until(_vehicle_info_populated)
@@ -625,30 +683,70 @@ def query_plate(driver: webdriver.Chrome, placa: str, timeout: int = 60) -> Dict
     if _check_placa_nao_encontrada(driver):
         raise PlacaNaoEncontradaError(f"Placa {placa_txt} não localizada no sistema Tokio Marine")
 
-    # Lê campos usando name=* (mais robusto que labels)
-    def _by_name(pattern: str) -> Optional[str]:
-        els = driver.find_elements(By.CSS_SELECTOR, f'input[name*="{pattern}"]')
-        return (els[0].get_attribute('value') or '').strip() or None if els else None
+    # Lê todos os campos em 1 round-trip JS em vez de 12+ find_elements/get_attribute
+    _SKIP = {'selecione', '-selecione-', '', 'selecionar'}
 
-    def _by_select_text(pattern: str) -> Optional[str]:
-        """Lê o texto da opção selecionada de um SELECT cujo name contém o padrão."""
-        els = driver.find_elements(By.CSS_SELECTOR, f'select[name*="{pattern}"]')
+    def _v(sel):
+        """Retorna .value do primeiro input correspondente ou '' se não encontrado."""
+        els = driver.find_elements(By.CSS_SELECTOR, sel)
+        return (els[0].get_attribute('value') or '').strip() if els else ''
+
+    def _s(sel):
+        """Retorna texto do option:checked do primeiro select correspondente, ou ''."""
+        els = driver.find_elements(By.CSS_SELECTOR, sel)
         for el in els:
             try:
-                text = el.find_element(By.CSS_SELECTOR, 'option:checked').text.strip()
-                if text and text.lower() not in ('selecione', '-selecione-', '', 'selecionar'):
-                    return text
+                t = el.find_element(By.CSS_SELECTOR, 'option:checked').text.strip()
+                if t.lower() not in _SKIP:
+                    return t
             except Exception:
                 pass
-        return None
+        return ''
+
+    try:
+        raw = driver.execute_script(
+            "var s=function(sel){"
+            "  var e=document.querySelector(sel);"
+            "  return e?(e.value||'').trim():null;};"
+            "var q=function(sel){"
+            "  var els=document.querySelectorAll(sel);"
+            "  for(var i=0;i<els.length;i++){"
+            "    var o=els[i].querySelector('option:checked');"
+            "    if(o&&o.text&&['selecione','-selecione-','','selecionar'].indexOf(o.text.trim().toLowerCase())===-1)"
+            "      return o.text.trim();} return null;};"
+            "return {"
+            "  placa:    s('input[name*=\".placa.\"]')||s('input[name*=\"placa\"]'),"
+            "  chassi:   s('input[name*=\".chassi.\"]')||s('input[name*=\"chassi\"]'),"
+            "  anoModelo:q('select[name*=\"anoModelo\"]'),"
+            "  veiculo:  q('select[name*=\".modelo.\"]')||q('select[name*=\"modelo\"]'),"
+            "  valorBase:s('input[name*=\"valorBase\"]'),"
+            "  codFIPE:  s('input[name*=\"codFIPE\"]')||s('input[name*=\"FIPE\"]'),"
+            "};"
+        ) or {}
+    except Exception:
+        raw = {}
+
+    def _by_name(pattern: str) -> Optional[str]:
+        key = pattern.strip('.')
+        v = raw.get(key) or raw.get(pattern)
+        if v:
+            return v
+        return _v(f'input[name*="{pattern}"]') or None
+
+    def _by_select_text(pattern: str) -> Optional[str]:
+        key = pattern.strip('.')
+        v = raw.get(key) or raw.get(pattern)
+        if v:
+            return v
+        return _s(f'select[name*="{pattern}"]') or None
 
     dados = {
-        'placa':                 _by_name('.placa.')          or _by_name('placa')     or placa,
-        'chassi':                _by_name('.chassi.')         or _by_name('chassi'),
-        'ano_modelo':            _by_select_text('anoModelo') or _read_value(driver, 'Ano modelo'),
-        'veiculo':               _by_select_text('.modelo.')  or _by_select_text('modelo') or _read_value(driver, 'Veículo'),
-        'valor_base_do_veiculo': _by_name('valorBase')        or _read_value(driver, 'Valor base'),
-        'codigo_fipe':           _by_name('codFIPE')          or _by_name('FIPE') or _read_value(driver, 'Código FIPE'),
+        'placa':                 raw.get('placa')     or _by_name('placa')      or placa,
+        'chassi':                raw.get('chassi')    or _by_name('chassi'),
+        'ano_modelo':            raw.get('anoModelo') or _read_value(driver, 'Ano modelo'),
+        'veiculo':               raw.get('veiculo')   or _read_value(driver, 'Veículo'),
+        'valor_base_do_veiculo': raw.get('valorBase') or _read_value(driver, 'Valor base'),
+        'codigo_fipe':           raw.get('codFIPE')   or _read_value(driver, 'Código FIPE'),
     }
 
     # Volta ao contexto principal
