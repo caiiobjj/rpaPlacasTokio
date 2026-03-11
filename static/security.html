@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Prisma RPA — Firewall</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root {
+      --ui-blue: #0554f2;
+      --ui-cyan: #2fb7ff;
+      --ui-ink: #0f172a;
+      --ui-bg: #f3f7fb;
+      --ui-card: #ffffff;
+      --ui-line: #dbe5f0;
+      --ui-muted: #64748b;
+      --ui-ok: #16a34a;
+      --ui-warn: #ea580c;
+      --ui-danger: #dc2626;
+    }
+    body { background: linear-gradient(180deg, #eef4fb 0%, #f8fbfe 100%); color: var(--ui-ink); }
+    .ub-card { background: var(--ui-card); border: 1px solid var(--ui-line); border-radius: 18px; box-shadow: 0 16px 40px rgba(15, 23, 42, 0.08); }
+    .ub-title { letter-spacing: .14em; text-transform: uppercase; color: var(--ui-muted); font-size: 11px; font-weight: 800; }
+    .ub-header { background: linear-gradient(90deg, var(--ui-blue), var(--ui-cyan)); }
+    .metric-ring { box-shadow: inset 0 0 0 8px #e8f1ff; }
+    .table-wrap::-webkit-scrollbar { width: 8px; height: 8px; }
+    .table-wrap::-webkit-scrollbar-thumb { background: #c4d3e5; border-radius: 999px; }
+    .chip { display:inline-flex; align-items:center; gap:6px; border-radius:999px; padding:4px 10px; font-size:11px; font-weight:700; }
+    .chip-ok { background:#dcfce7; color:#166534; }
+    .chip-block { background:#fee2e2; color:#991b1b; }
+    .chip-auth { background:#fef3c7; color:#92400e; }
+    .chip-info { background:#dbeafe; color:#1d4ed8; }
+    .bar-track { background:#e5edf7; border-radius:999px; height:10px; overflow:hidden; }
+    .bar-fill { height:100%; border-radius:999px; }
+    .nav-link { color: rgba(255,255,255,.88); }
+    .nav-link:hover { color: #fff; }
+  </style>
+</head>
+<body class="font-sans min-h-screen">
+  <header class="ub-header text-white sticky top-0 z-40 shadow-lg">
+    <div class="max-w-screen-2xl mx-auto px-5 py-4 flex items-center justify-between gap-4">
+      <div class="flex items-center gap-4">
+        <div class="w-11 h-11 rounded-2xl bg-white/15 border border-white/20 flex items-center justify-center text-xl">🛡</div>
+        <div>
+          <div class="text-xs font-bold tracking-[0.25em] uppercase text-white/70">UniFi Shield Style</div>
+          <h1 class="text-2xl font-black">Prisma RPA Firewall Center</h1>
+        </div>
+      </div>
+      <div class="flex items-center gap-3 text-sm flex-wrap justify-end">
+        <nav class="flex items-center gap-2 mr-2">
+          <a href="/" class="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 font-bold text-white/90">🧭 Admin</a>
+          <a href="/security" class="px-3 py-2 rounded-xl bg-slate-950/20 border border-white/15 font-bold text-white">🛡 Firewall</a>
+        </nav>
+        <span class="nav-link text-xs">Meu IP: <b id="current-ip">—</b></span>
+        <label class="nav-link text-xs flex items-center gap-2"><input id="auto-refresh" type="checkbox" checked class="accent-cyan-300"> Auto 10s</label>
+        <button onclick="refreshAll()" class="px-3 py-2 rounded-xl bg-white/15 hover:bg-white/20 border border-white/20 font-bold">↻ Atualizar</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-screen-2xl mx-auto px-5 py-6 space-y-6">
+    <section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4" id="summary-cards"></section>
+
+    <section class="grid grid-cols-1 xl:grid-cols-5 gap-6">
+      <div class="xl:col-span-2 space-y-6">
+        <div class="ub-card p-5">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <div class="ub-title">Allowed IPs</div>
+              <h2 class="text-xl font-black text-slate-900">Allowlist operacional</h2>
+            </div>
+            <span id="allowlist-count" class="chip chip-info">0 regras</span>
+          </div>
+
+          <form class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4" onsubmit="createAllowedIp(event)">
+            <div>
+              <label class="block text-xs font-bold text-slate-500 mb-1">IP / CIDR</label>
+              <input id="ip-rule" required placeholder="Ex.: 187.22.10.15 ou 187.22.10.0/24" class="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label class="block text-xs font-bold text-slate-500 mb-1">Label</label>
+              <input id="ip-label" placeholder="Ex.: Escritório SP / n8n produção" class="w-full rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div class="md:col-span-2">
+              <label class="block text-xs font-bold text-slate-500 mb-1">Observações</label>
+              <div class="flex gap-3">
+                <input id="ip-notes" placeholder="Ex.: link dedicado, time comercial, integrador" class="flex-1 rounded-xl border border-slate-300 bg-slate-50 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <button class="px-5 py-3 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold shadow" type="submit">＋ Adicionar</button>
+              </div>
+            </div>
+          </form>
+
+          <div id="allow-toast" class="hidden mb-4 px-4 py-3 rounded-xl text-sm font-bold"></div>
+
+          <div class="table-wrap overflow-auto max-h-[420px] rounded-2xl border border-slate-200">
+            <table class="w-full text-sm">
+              <thead class="sticky top-0 bg-slate-100 text-slate-500 uppercase text-xs tracking-wider">
+                <tr>
+                  <th class="text-left px-4 py-3">Regra</th>
+                  <th class="text-left px-4 py-3">Label</th>
+                  <th class="text-left px-4 py-3">Último uso</th>
+                  <th class="text-right px-4 py-3">Hits</th>
+                  <th class="text-center px-4 py-3">Status</th>
+                  <th class="text-right px-4 py-3">Ação</th>
+                </tr>
+              </thead>
+              <tbody id="allowlist-body">
+                <tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">Carregando regras...</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="ub-card p-5">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <div class="ub-title">Threat Feed</div>
+              <h2 class="text-xl font-black text-slate-900">IPs com mais bloqueios</h2>
+            </div>
+            <span class="chip chip-block">Top 10</span>
+          </div>
+          <div id="blocked-ips" class="space-y-3 text-sm text-slate-700"></div>
+        </div>
+      </div>
+
+      <div class="xl:col-span-3 space-y-6">
+        <div class="ub-card p-5">
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <div class="ub-title">Firewall Analytics</div>
+              <h2 class="text-xl font-black text-slate-900">Telemetria de acesso</h2>
+            </div>
+            <div class="flex items-center gap-2 text-xs">
+              <span class="text-slate-500">Janela</span>
+              <select id="overview-hours" onchange="refreshOverview()" class="rounded-lg border border-slate-300 bg-white px-3 py-2 font-bold text-slate-700">
+                <option value="6">6h</option>
+                <option value="24" selected>24h</option>
+                <option value="72">72h</option>
+                <option value="168">7 dias</option>
+              </select>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            <div>
+              <div class="text-sm font-bold text-slate-700 mb-3">Ações observadas</div>
+              <div id="action-breakdown" class="space-y-3"></div>
+            </div>
+            <div>
+              <div class="text-sm font-bold text-slate-700 mb-3">Hot paths</div>
+              <div id="hot-paths" class="space-y-3"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div class="ub-card p-5">
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <div class="ub-title">Trusted Talkers</div>
+                <h3 class="text-lg font-black text-slate-900">IPs autorizados mais ativos</h3>
+              </div>
+              <span class="chip chip-ok">Allow</span>
+            </div>
+            <div id="allowed-ips-activity" class="space-y-3"></div>
+          </div>
+
+          <div class="ub-card p-5">
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <div class="ub-title">Denied Attempts</div>
+                <h3 class="text-lg font-black text-slate-900">Últimos eventos críticos</h3>
+              </div>
+              <select id="event-filter" onchange="loadEvents()" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-bold text-slate-700">
+                <option value="">Todos</option>
+                <option value="blocked_ip">Bloqueados</option>
+                <option value="auth_fail">Falha de login</option>
+                <option value="auth_ok">Login OK</option>
+              </select>
+            </div>
+            <div class="table-wrap overflow-auto max-h-[520px] rounded-2xl border border-slate-200">
+              <table class="w-full text-sm">
+                <thead class="sticky top-0 bg-slate-100 text-slate-500 uppercase text-xs tracking-wider">
+                  <tr>
+                    <th class="text-left px-4 py-3">Quando</th>
+                    <th class="text-left px-4 py-3">IP</th>
+                    <th class="text-left px-4 py-3">Ação</th>
+                    <th class="text-left px-4 py-3">Rota</th>
+                    <th class="text-left px-4 py-3">Motivo</th>
+                  </tr>
+                </thead>
+                <tbody id="events-body">
+                  <tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">Carregando eventos...</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+<script>
+const API = '';
+let _autoInterval = null;
+let _allowlist = [];
+
+function fmtDate(value) {
+  if (!value) return '—';
+  return new Date(value).toLocaleString('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit'
+  });
+}
+
+async function fetchJSON(url, options) {
+  const res = await fetch(API + url, options);
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    if (res.url && res.url.includes('/login')) {
+      location.href = '/login';
+      throw new Error('Sessão expirada.');
+    }
+    throw new Error(`Resposta inesperada (${res.status})`);
+  }
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || res.statusText);
+  return data;
+}
+
+function toast(msg, ok = true) {
+  const el = document.getElementById('allow-toast');
+  el.className = `mb-4 px-4 py-3 rounded-xl text-sm font-bold ${ok ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'}`;
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  setTimeout(() => el.classList.add('hidden'), 4000);
+}
+
+function metricCard(icon, label, value, tone, hint) {
+  return `
+    <div class="ub-card p-5">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="ub-title mb-2">${label}</div>
+          <div class="text-3xl font-black ${tone}">${value}</div>
+          <div class="text-xs text-slate-500 mt-2">${hint || ''}</div>
+        </div>
+        <div class="metric-ring w-14 h-14 rounded-2xl flex items-center justify-center text-2xl">${icon}</div>
+      </div>
+    </div>`;
+}
+
+function renderSummary(overview) {
+  const s = overview.summary || {};
+  document.getElementById('current-ip').textContent = overview.current_ip || '—';
+  document.getElementById('summary-cards').innerHTML = [
+    metricCard('✅', 'Allow 24h', s.allowed_24h || 0, 'text-emerald-600', 'Requisições liberadas pelo firewall'),
+    metricCard('⛔', 'Bloqueios 24h', s.blocked_24h || 0, 'text-red-600', 'Tentativas negadas pela allowlist'),
+    metricCard('🔐', 'Falhas de login', s.auth_fail_24h || 0, 'text-amber-600', 'Erros de autenticação detectados'),
+    metricCard('🌐', 'IPs únicos', s.unique_ips_24h || 0, 'text-blue-600', 'Origem distinta observada na janela'),
+    metricCard('📌', 'Regras ativas', `${overview.enabled_total || 0}/${overview.allowed_total || 0}`, 'text-cyan-600', `Último bloqueio: ${fmtDate(s.last_blocked_at)}`),
+  ].join('');
+}
+
+function renderAllowlist(data) {
+  _allowlist = data.items || [];
+  document.getElementById('allowlist-count').textContent = `${_allowlist.length} regras`;
+  const tbody = document.getElementById('allowlist-body');
+  if (!_allowlist.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="px-4 py-8 text-center text-slate-400">Nenhuma regra cadastrada.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = _allowlist.map(item => `
+    <tr class="border-b border-slate-100 hover:bg-slate-50">
+      <td class="px-4 py-3">
+        <div class="font-mono font-bold text-slate-900">${item.ip}</div>
+        <div class="text-xs text-slate-500">${item.notes || 'Sem observações'}</div>
+      </td>
+      <td class="px-4 py-3 text-slate-700">${item.label || '—'}</td>
+      <td class="px-4 py-3 text-slate-500 text-xs">${fmtDate(item.last_seen)}</td>
+      <td class="px-4 py-3 text-right font-bold text-slate-700">${item.hit_count || 0}</td>
+      <td class="px-4 py-3 text-center">
+        <label class="inline-flex items-center gap-2 text-xs font-bold ${item.enabled ? 'text-emerald-600' : 'text-slate-400'}">
+          <input type="checkbox" ${item.enabled ? 'checked' : ''} onchange="toggleRule('${encodeURIComponent(item.ip)}', this.checked)" class="accent-blue-600">
+          ${item.enabled ? 'Ativa' : 'Inativa'}
+        </label>
+      </td>
+      <td class="px-4 py-3 text-right">
+        <button onclick="removeRule('${encodeURIComponent(item.ip)}')" class="px-3 py-2 rounded-lg bg-red-50 text-red-700 hover:bg-red-100 border border-red-200 text-xs font-bold">Excluir</button>
+      </td>
+    </tr>`).join('');
+}
+
+function renderRank(containerId, rows, color) {
+  const el = document.getElementById(containerId);
+  if (!rows || !rows.length) {
+    el.innerHTML = '<div class="text-sm text-slate-400 italic">Sem dados suficientes.</div>';
+    return;
+  }
+  const max = Math.max(...rows.map(r => r.total || 0), 1);
+  el.innerHTML = rows.map(r => `
+    <div>
+      <div class="flex items-center justify-between gap-3 mb-1 text-sm">
+        <div class="font-mono font-bold text-slate-900">${r.ip || r.path}</div>
+        <div class="text-xs text-slate-500">${r.total || 0} eventos</div>
+      </div>
+      <div class="bar-track"><div class="bar-fill ${color}" style="width:${Math.max(8, Math.round(((r.total || 0) / max) * 100))}%"></div></div>
+      ${r.last_seen ? `<div class="text-xs text-slate-400 mt-1">Último: ${fmtDate(r.last_seen)}</div>` : ''}
+      ${r.blocked != null ? `<div class="text-xs text-slate-400 mt-1">Allow: ${r.allowed || 0} • Block: ${r.blocked || 0}</div>` : ''}
+    </div>`).join('');
+}
+
+function renderActions(rows) {
+  const el = document.getElementById('action-breakdown');
+  if (!rows || !rows.length) {
+    el.innerHTML = '<div class="text-sm text-slate-400 italic">Sem telemetria disponível.</div>';
+    return;
+  }
+  const max = Math.max(...rows.map(r => r.total || 0), 1);
+  const colors = {
+    allowed: 'bg-emerald-500',
+    blocked_ip: 'bg-red-500',
+    auth_fail: 'bg-amber-500',
+    auth_ok: 'bg-blue-500',
+  };
+  el.innerHTML = rows.map(row => `
+    <div>
+      <div class="flex items-center justify-between text-sm mb-1">
+        <span class="font-bold text-slate-700">${row.action}</span>
+        <span class="text-slate-500">${row.total}</span>
+      </div>
+      <div class="bar-track"><div class="bar-fill ${colors[row.action] || 'bg-slate-400'}" style="width:${Math.max(6, Math.round((row.total / max) * 100))}%"></div></div>
+    </div>`).join('');
+}
+
+function eventChip(action) {
+  if (action === 'blocked_ip') return '<span class="chip chip-block">BLOCK</span>';
+  if (action === 'auth_fail') return '<span class="chip chip-auth">AUTH FAIL</span>';
+  if (action === 'auth_ok') return '<span class="chip chip-info">AUTH OK</span>';
+  return '<span class="chip chip-ok">ALLOW</span>';
+}
+
+function renderEvents(rows) {
+  const tbody = document.getElementById('events-body');
+  if (!rows || !rows.length) {
+    tbody.innerHTML = '<tr><td colspan="5" class="px-4 py-8 text-center text-slate-400">Nenhum evento encontrado.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(row => `
+    <tr class="border-b border-slate-100 hover:bg-slate-50 align-top">
+      <td class="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">${fmtDate(row.created_at)}</td>
+      <td class="px-4 py-3">
+        <div class="font-mono font-bold text-slate-900">${row.ip || '—'}</div>
+        <div class="text-xs text-slate-400">${row.request_mode || '—'}</div>
+      </td>
+      <td class="px-4 py-3">${eventChip(row.action)}</td>
+      <td class="px-4 py-3 text-slate-700">
+        <div class="font-bold">${row.method} ${row.path}</div>
+        <div class="text-xs text-slate-400">Status ${row.status_code ?? '—'} ${row.allowed_rule ? `• regra ${row.allowed_rule}` : ''}</div>
+      </td>
+      <td class="px-4 py-3 text-slate-500 text-xs">${row.reason || '—'}</td>
+    </tr>`).join('');
+}
+
+async function createAllowedIp(event) {
+  event.preventDefault();
+  try {
+    await fetchJSON('/api/security/allowed-ips', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ip: document.getElementById('ip-rule').value,
+        label: document.getElementById('ip-label').value || null,
+        notes: document.getElementById('ip-notes').value || null,
+        enabled: true,
+      })
+    });
+    document.getElementById('ip-rule').value = '';
+    document.getElementById('ip-label').value = '';
+    document.getElementById('ip-notes').value = '';
+    toast('Regra adicionada com sucesso.');
+    await loadAllowlist();
+    await refreshOverview();
+  } catch (e) {
+    toast(e.message, false);
+  }
+}
+
+async function toggleRule(rule, enabled) {
+  try {
+    await fetchJSON(`/api/security/allowed-ips/${rule}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled })
+    });
+    toast(`Regra ${enabled ? 'ativada' : 'desativada'} com sucesso.`);
+    await loadAllowlist();
+    await refreshOverview();
+  } catch (e) {
+    toast(e.message, false);
+    await loadAllowlist();
+  }
+}
+
+async function removeRule(rule) {
+  if (!confirm('Excluir esta regra da allowlist?')) return;
+  try {
+    await fetchJSON(`/api/security/allowed-ips/${rule}`, { method: 'DELETE' });
+    toast('Regra removida com sucesso.');
+    await loadAllowlist();
+    await refreshOverview();
+  } catch (e) {
+    toast(e.message, false);
+  }
+}
+
+async function loadAllowlist() {
+  const data = await fetchJSON('/api/security/allowed-ips');
+  renderAllowlist(data);
+  if (data.current_ip) document.getElementById('current-ip').textContent = data.current_ip;
+}
+
+async function refreshOverview() {
+  const hours = document.getElementById('overview-hours').value;
+  const data = await fetchJSON(`/api/security/overview?hours=${hours}`);
+  renderSummary(data);
+  renderRank('blocked-ips', data.top_blocked_ips || [], 'bg-red-500');
+  renderRank('allowed-ips-activity', data.top_allowed_ips || [], 'bg-emerald-500');
+  renderRank('hot-paths', data.hot_paths || [], 'bg-blue-500');
+  renderActions(data.actions || []);
+}
+
+async function loadEvents() {
+  const action = document.getElementById('event-filter').value;
+  const suffix = action ? `?action=${encodeURIComponent(action)}&limit=250` : '?limit=250';
+  const rows = await fetchJSON('/api/security/events' + suffix);
+  renderEvents(rows);
+}
+
+async function refreshAll() {
+  try {
+    await Promise.all([loadAllowlist(), refreshOverview(), loadEvents()]);
+  } catch (e) {
+    toast(e.message, false);
+  }
+}
+
+function setupAutoRefresh() {
+  const cb = document.getElementById('auto-refresh');
+  const toggle = () => {
+    if (_autoInterval) clearInterval(_autoInterval);
+    _autoInterval = cb.checked ? setInterval(refreshAll, 10000) : null;
+  };
+  cb.addEventListener('change', toggle);
+  toggle();
+}
+
+refreshAll();
+setupAutoRefresh();
+</script>
+</body>
+</html>

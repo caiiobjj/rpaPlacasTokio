@@ -3,1149 +3,1003 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Prisma RPA — Painel</title>
+  <title>Prisma RPA — Admin Queue Center</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    body { background: #0f172a; }
-    .card { background: #1e293b; border: 1px solid #334155; }
-    .badge-ok       { background:#16a34a22; color:#4ade80; border:1px solid #16a34a55; }
-    .badge-error    { background:#dc262622; color:#f87171; border:1px solid #dc262655; }
-    .badge-invalid  { background:#d9770622; color:#fb923c; border:1px solid #d9770655; }
-    .badge-pending  { background:#64748b22; color:#94a3b8; border:1px solid #64748b55; }
-    .badge-cache    { background:#7c3aed22; color:#c084fc; border:1px solid #7c3aed55; }
-    .badge-notfound { background:#0ea5e922; color:#38bdf8; border:1px solid #0ea5e955; }
-    .row-ok      { border-left: 3px solid #22c55e; }
-    .row-error   { border-left: 3px solid #ef4444; }
-    .row-invalid { border-left: 3px solid #f97316; }
-    .row-pending { border-left: 3px solid #64748b; }
-    .row-selected { background: #1e3a5f !important; }
-    tr.hoverable:hover { background: #1e3a5f; cursor: pointer; }
-    .log-INFO    { color: #94a3b8; }
-    .log-WARNING { color: #fbbf24; }
-    .log-ERROR   { color: #f87171; }
-    .pulse-dot {
-      display:inline-block; width:8px; height:8px; border-radius:50%;
-      animation: pulse 2s infinite;
+    :root {
+      --bg: #07111f;
+      --bg-soft: #0d1a2d;
+      --card: rgba(10, 22, 39, 0.82);
+      --line: rgba(148, 163, 184, 0.16);
+      --text: #dbeafe;
+      --muted: #94a3b8;
+      --cyan: #22d3ee;
+      --blue: #3b82f6;
+      --green: #22c55e;
+      --amber: #f59e0b;
+      --red: #ef4444;
+      --violet: #8b5cf6;
     }
-    @keyframes pulse {
-      0%,100%{ opacity:1; } 50%{ opacity:.4; }
+    * { scrollbar-width: thin; scrollbar-color: #35517a transparent; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-thumb { background: #35517a; border-radius: 999px; }
+    body {
+      background:
+        radial-gradient(circle at top left, rgba(34, 211, 238, 0.16), transparent 28%),
+        radial-gradient(circle at top right, rgba(59, 130, 246, 0.18), transparent 22%),
+        linear-gradient(180deg, #07111f 0%, #0b1526 100%);
+      color: var(--text);
     }
-    /* progress bar */
-    .progress-bar-track { background:#1e293b; border-radius:9999px; height:8px; overflow:hidden; }
-    .progress-bar-fill  { height:100%; border-radius:9999px; transition: width .4s ease; }
-    /* batch status badges */
-    .bs-executando { background:#f59e0b22; color:#fbbf24; border:1px solid #f59e0b55; }
-    .bs-concluido  { background:#16a34a22; color:#4ade80; border:1px solid #16a34a55; }
-    .bs-pendente   { background:#64748b22; color:#94a3b8; border:1px solid #64748b55; }
-    .bs-aguardando { background:#3b82f622; color:#60a5fa; border:1px solid #3b82f655; }
-    .bs-cancelado  { background:#6b728022; color:#9ca3af; border:1px solid #6b728055; }
-    ::-webkit-scrollbar { width:6px; height:6px; }
-    ::-webkit-scrollbar-track { background:#1e293b; }
-    ::-webkit-scrollbar-thumb { background:#475569; border-radius:3px; }
-    /* health bar */
-    .health-bar-track { background:#1e293b; border:1px solid #334155; border-radius:9999px; height:12px; overflow:hidden; }
-    .health-bar-fill  { height:100%; border-radius:9999px; transition: width .6s ease; }
-    /* metric card */
-    .metric-card      { background:linear-gradient(135deg,#1e293b 0%,#1a2535 100%); border:1px solid #334155; transition:border-color .2s; }
-    .metric-card:hover { border-color:#475569; }
-    /* timeline blocks */
-    .tl-block { width:12px; min-width:12px; height:28px; border-radius:3px; flex-shrink:0; transition:opacity .2s,transform .2s; cursor:help; }
-    .tl-block:hover { opacity:1 !important; transform:scaleY(1.2); }
-    /* pool worker card */
-    .worker-card { border:1px solid #334155; border-radius:8px; padding:6px 10px; min-width:70px; text-align:center; }
-    /* stat mini-bar */
-    .mini-bar { background:#334155; border-radius:9999px; height:4px; overflow:hidden; margin-top:4px; }
-    .mini-bar-fill { height:100%; border-radius:9999px; transition:width .5s ease; }
-    /* nav badge */
-    .nav-badge { background:#dc2626; color:#fff; border-radius:9999px; font-size:9px; padding:1px 5px; font-weight:700; min-width:16px; text-align:center; line-height:14px; }
-    /* glow ok */
-    .glow-green { box-shadow: 0 0 12px #22c55e44; }
-    .glow-red   { box-shadow: 0 0 12px #ef444444; }
-    /* section header */
-    .section-header { font-size:10px; color:#64748b; text-transform:uppercase; letter-spacing:.1em; font-weight:700; }
-    /* throughput chip */
-    .chip { display:inline-flex; align-items:center; gap:4px; padding:2px 8px; border-radius:9999px; font-size:10px; font-weight:700; }
+    .glass {
+      background: var(--card);
+      border: 1px solid var(--line);
+      box-shadow: 0 24px 70px rgba(2, 8, 23, 0.34);
+      backdrop-filter: blur(14px);
+    }
+    .metric-card {
+      position: relative;
+      overflow: hidden;
+      border-radius: 24px;
+      padding: 18px;
+      background: linear-gradient(180deg, rgba(8, 20, 36, 0.96), rgba(12, 28, 48, 0.84));
+      border: 1px solid rgba(96, 165, 250, 0.12);
+    }
+    .metric-card::after {
+      content: "";
+      position: absolute;
+      inset: auto -20% -40% auto;
+      width: 120px;
+      height: 120px;
+      border-radius: 999px;
+      background: radial-gradient(circle, rgba(34, 211, 238, 0.18), transparent 65%);
+      pointer-events: none;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .02em;
+      border: 1px solid transparent;
+    }
+    .pill-blue { background: rgba(59,130,246,.15); color: #93c5fd; border-color: rgba(59,130,246,.28); }
+    .pill-cyan { background: rgba(34,211,238,.14); color: #67e8f9; border-color: rgba(34,211,238,.28); }
+    .pill-green { background: rgba(34,197,94,.14); color: #86efac; border-color: rgba(34,197,94,.28); }
+    .pill-amber { background: rgba(245,158,11,.14); color: #fcd34d; border-color: rgba(245,158,11,.28); }
+    .pill-red { background: rgba(239,68,68,.14); color: #fca5a5; border-color: rgba(239,68,68,.28); }
+    .pill-violet { background: rgba(139,92,246,.14); color: #c4b5fd; border-color: rgba(139,92,246,.28); }
+    .pill-slate { background: rgba(148,163,184,.14); color: #cbd5e1; border-color: rgba(148,163,184,.2); }
+    .tab-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      border-radius: 14px;
+      color: #cbd5e1;
+      border: 1px solid transparent;
+      transition: .2s ease;
+    }
+    .tab-link:hover { background: rgba(15, 23, 42, .55); color: #fff; }
+    .tab-link.active {
+      background: linear-gradient(135deg, rgba(37,99,235,.34), rgba(8,145,178,.28));
+      color: #fff;
+      border-color: rgba(125, 211, 252, .2);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+    }
+    .progress-track {
+      height: 10px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, .95);
+      overflow: hidden;
+      border: 1px solid rgba(148, 163, 184, .08);
+    }
+    .progress-fill {
+      height: 100%;
+      border-radius: 999px;
+      transition: width .35s ease;
+    }
+    .worker-card {
+      border-radius: 20px;
+      border: 1px solid rgba(148, 163, 184, .15);
+      background: linear-gradient(180deg, rgba(8,20,36,.94), rgba(11,25,42,.82));
+      padding: 16px;
+    }
+    .worker-card.busy { box-shadow: 0 0 0 1px rgba(239,68,68,.14), 0 18px 36px rgba(239,68,68,.08); }
+    .worker-card.idle { box-shadow: 0 0 0 1px rgba(34,197,94,.12), 0 18px 36px rgba(34,197,94,.06); }
+    .worker-card.recovering, .worker-card.starting { box-shadow: 0 0 0 1px rgba(59,130,246,.12), 0 18px 36px rgba(59,130,246,.06); }
+    .worker-card.stopping, .worker-card.error { box-shadow: 0 0 0 1px rgba(245,158,11,.16), 0 18px 36px rgba(245,158,11,.08); }
+    .status-dot { width: 10px; height: 10px; border-radius: 999px; display: inline-block; }
+    .status-dot.ok { background: #4ade80; box-shadow: 0 0 0 6px rgba(74,222,128,.14); }
+    .status-dot.warn { background: #facc15; box-shadow: 0 0 0 6px rgba(250,204,21,.12); }
+    .status-dot.err { background: #f87171; box-shadow: 0 0 0 6px rgba(248,113,113,.12); }
+    .table-shell { border-radius: 24px; overflow: hidden; border: 1px solid var(--line); }
+    .table-shell table { width: 100%; border-collapse: collapse; }
+    .table-shell thead { background: rgba(15, 23, 42, .85); }
+    .table-shell th {
+      font-size: 11px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: #93c5fd;
+      padding: 14px 14px;
+      text-align: left;
+      border-bottom: 1px solid rgba(148,163,184,.12);
+    }
+    .table-shell td {
+      padding: 14px;
+      border-bottom: 1px solid rgba(148,163,184,.08);
+      vertical-align: top;
+      color: #dbeafe;
+    }
+    .table-shell tbody tr:hover { background: rgba(15, 23, 42, .48); }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border-radius: 14px;
+      padding: 10px 14px;
+      font-weight: 800;
+      transition: .18s ease;
+      border: 1px solid transparent;
+    }
+    .btn:disabled { opacity: .55; cursor: not-allowed; }
+    .btn-primary { background: linear-gradient(135deg, #2563eb, #0891b2); color: #fff; }
+    .btn-primary:hover { filter: brightness(1.06); }
+    .btn-secondary { background: rgba(15,23,42,.72); color: #cbd5e1; border-color: rgba(148,163,184,.16); }
+    .btn-secondary:hover { background: rgba(30,41,59,.86); color: #fff; }
+    .btn-danger { background: rgba(127,29,29,.72); color: #fecaca; border-color: rgba(248,113,113,.22); }
+    .btn-danger:hover { background: rgba(153,27,27,.9); }
+    .btn-ghost { background: rgba(14, 165, 233, .08); color: #7dd3fc; border-color: rgba(125,211,252,.18); }
+    .btn-ghost:hover { background: rgba(14,165,233,.14); }
+    .mini-label { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .09em; font-weight: 800; }
+    .code-block {
+      font-family: Consolas, Monaco, monospace;
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: rgba(15, 23, 42, .72);
+      border: 1px solid rgba(148,163,184,.12);
+      border-radius: 18px;
+      padding: 14px;
+      color: #bfdbfe;
+      font-size: 12px;
+      max-height: 280px;
+      overflow: auto;
+    }
+    .toast {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      min-width: 280px;
+      max-width: 420px;
+      z-index: 80;
+      padding: 14px 16px;
+      border-radius: 18px;
+      border: 1px solid rgba(148,163,184,.16);
+      box-shadow: 0 16px 50px rgba(2,8,23,.45);
+      backdrop-filter: blur(12px);
+    }
   </style>
 </head>
-<body class="text-slate-300 min-h-screen font-mono text-sm">
-
-  <!-- NAV -->
-  <nav class="sticky top-0 z-50 flex items-center justify-between px-6 py-3 border-b border-slate-700" style="background:#0f172a">
-    <div class="flex items-center gap-3">
-      <span class="pulse-dot bg-green-400" id="status-dot"></span>
-      <span class="text-lg font-bold text-white">Prisma RPA</span>
-      <span class="text-xs text-slate-500 hidden sm:inline">&mdash; Painel de Monitoramento</span>
-    </div>
-    <div class="flex items-center gap-4">
-      <span class="text-xs text-slate-500">Atualizado: <span id="last-refresh">&mdash;</span></span>
-      <button onclick="refresh()" class="px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs">&uarr; Atualizar</button>
-      <label class="flex items-center gap-2 text-xs text-slate-400">
-        <input type="checkbox" id="auto-refresh" checked class="accent-blue-500">
-        Auto (5s)
-      </label>
-      <a href="/logout" title="Sair do painel"
-         class="px-3 py-1 rounded text-xs font-bold transition-colors"
-         style="background:#1e293b;border:1px solid #475569;color:#94a3b8"
-         onmouseover="this.style.color='#f87171'" onmouseout="this.style.color='#94a3b8'">&#x2715; Sair</a>
-      <button onclick="reiniciarRPA()" id="btn-reiniciar"
-        class="px-3 py-1 rounded text-xs font-bold transition-colors"
-        style="background:#450a0a;border:1px solid #991b1b;color:#fca5a5"
-        onmouseover="this.style.background='#7f1d1d'" onmouseout="this.style.background='#450a0a'">
-        &#x21bb; Reiniciar RPA
-      </button>
-    </div>
-  </nav>
-
-  <div class="max-w-screen-2xl mx-auto px-4 py-6 space-y-6">
-
-    <!-- METRIC CARDS -->
-    <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3" id="metrics">
-      <!-- filled by JS -->
-    </div>
-
-    <!-- SYSTEM HEALTH + TIMELINE -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-      <!-- System Health Score -->
-      <div class="card rounded-xl p-4" id="health-score-card">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="section-header">🛡 Saúde do Sistema</h2>
-          <span id="health-score-label" class="text-xl font-bold text-white">—</span>
-        </div>
-        <div class="health-bar-track mb-2">
-          <div id="health-score-bar" class="health-bar-fill bg-slate-600" style="width:0%"></div>
-        </div>
-        <div class="grid grid-cols-3 gap-2 mt-3" id="health-details">
-          <div class="text-center">
-            <div class="text-xs text-slate-500 mb-1">Taxa de Sucesso</div>
-            <div id="hd-success" class="font-bold text-green-400 text-sm">—</div>
-          </div>
-          <div class="text-center">
-            <div class="text-xs text-slate-500 mb-1">Taxa de Erro</div>
-            <div id="hd-error" class="font-bold text-red-400 text-sm">—</div>
-          </div>
-          <div class="text-center">
-            <div class="text-xs text-slate-500 mb-1">Pool Disponível</div>
-            <div id="hd-pool" class="font-bold text-blue-400 text-sm">—</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Query Timeline -->
-      <div class="card rounded-xl p-4">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="section-header">📈 Últimas Consultas (timeline)</h2>
-          <span class="text-xs text-slate-600" id="timeline-legend">
-            <span style="background:#22c55e" class="inline-block w-2 h-2 rounded-sm mr-1"></span>OK
-            <span style="background:#ef4444" class="inline-block w-2 h-2 rounded-sm ml-2 mr-1"></span>Erro
-            <span style="background:#38bdf8" class="inline-block w-2 h-2 rounded-sm ml-2 mr-1"></span>N/A
-            <span style="background:#c084fc" class="inline-block w-2 h-2 rounded-sm ml-2 mr-1"></span>Cache
-          </span>
-        </div>
-        <div id="timeline" class="flex items-end gap-1 overflow-hidden" style="min-height:36px">
-          <span class="text-xs text-slate-600 italic">Aguardando dados...</span>
-        </div>
-        <div class="mt-2 flex items-center justify-between text-xs text-slate-600">
-          <span>← mais recente</span>
-          <span id="timeline-throughput"></span>
-        </div>
-      </div>
-
-    </div>
-
-    <!-- POOL + REDIS STATUS -->
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <div class="card rounded-xl p-4">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="section-header">⚙️ Pool de Workers Chrome</h2>
-          <span id="pool-utilization" class="chip" style="background:#1e3a5f;color:#60a5fa">—</span>
-        </div>
-        <div class="health-bar-track mb-3">
-          <div id="pool-util-bar" class="health-bar-fill bg-blue-500" style="width:0%"></div>
-        </div>
-        <div id="pool-status" class="flex items-center gap-2 flex-wrap">
-          <!-- filled by JS -->
-        </div>
-      </div>
-      <div class="card rounded-xl p-4">
-        <h2 class="section-header mb-3">🔧 Infraestrutura &amp; Runtime</h2>
-        <div id="infra-status" class="space-y-2">
-          <!-- filled by JS -->
-        </div>
-      </div>
-    </div>
-
-    <!-- JOBS ATIVOS -->
-    <div class="card rounded-xl p-4" id="active-jobs-section">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="section-header">🏃 Jobs em Execução / Aguardando</h2>
-        <span class="text-xs text-slate-600" id="active-jobs-count">nenhum ativo</span>
-      </div>
-      <div id="active-jobs-body">
-        <p class="text-xs text-slate-600 italic">Nenhum job ativo no momento.</p>
-      </div>
-    </div>
-
-    <!-- LOG DE ACESSOS À API -->
-    <div class="card rounded-xl p-4" id="access-section">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="text-xs text-slate-500 uppercase tracking-widest">&#x1f4e1; Log de Acessos à API</h2>
+<body class="font-sans min-h-screen">
+  <header class="sticky top-0 z-40 border-b border-slate-800/80 bg-slate-950/85 backdrop-blur-xl">
+    <div class="max-w-screen-2xl mx-auto px-4 lg:px-6 py-4 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+      <div class="flex flex-col gap-3">
         <div class="flex items-center gap-3">
-          <span class="text-xs text-slate-600">Últimas <span id="access-count">0</span> requisições</span>
-          <button onclick="loadAccessLogs()" class="text-xs text-slate-500 hover:text-white">↺ Atualizar</button>
-          <button onclick="toggleAccessLog()" class="text-xs text-slate-500 hover:text-white" id="access-toggle-btn">▼ Recolher</button>
+          <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-cyan-400/30 to-blue-600/30 border border-cyan-300/15 flex items-center justify-center text-2xl">⚙️</div>
+          <div>
+            <div class="text-[11px] uppercase tracking-[0.28em] text-cyan-200/70 font-bold">Prisma RPA · Queue Operations</div>
+            <h1 class="text-2xl lg:text-3xl font-black text-white">Admin Control Center</h1>
+          </div>
         </div>
+        <nav class="flex flex-wrap items-center gap-2">
+          <a href="/" class="tab-link active">🧭 Admin</a>
+          <a href="/security" class="tab-link">🛡 Firewall</a>
+        </nav>
       </div>
-      <div id="access-body">
-        <div class="overflow-auto max-h-60">
-          <table class="w-full text-xs border-collapse">
-            <thead class="sticky top-0" style="background:#1e293b">
-              <tr class="text-slate-500 border-b border-slate-700">
-                <th class="text-left py-2 pr-3 whitespace-nowrap">Horário</th>
-                <th class="text-left py-2 pr-3">IP</th>
-                <th class="text-left py-2 pr-3">Método</th>
-                <th class="text-left py-2 pr-3">Endpoint</th>
-                <th class="text-left py-2 pr-3">Placa</th>
-                <th class="text-right py-2 pr-3">Status</th>
-                <th class="text-right py-2">Duração</th>
-              </tr>
-            </thead>
-            <tbody id="access-tbody">
-              <tr><td colspan="7" class="text-center text-slate-600 py-4">Carregando...</td></tr>
-            </tbody>
-          </table>
+      <div class="flex flex-wrap items-center gap-3 text-sm">
+        <div class="glass rounded-2xl px-4 py-3 min-w-[210px]">
+          <div class="mini-label">última atualização</div>
+          <div class="mt-1 flex items-center justify-between gap-3">
+            <div class="font-bold text-white" id="last-refresh">—</div>
+            <div class="flex items-center gap-2 text-xs text-slate-300">
+              <label class="flex items-center gap-2 cursor-pointer"><input id="auto-refresh" type="checkbox" checked class="accent-cyan-400">Auto 5s</label>
+            </div>
+          </div>
         </div>
-        <p class="text-xs text-slate-600 mt-2 italic">&#x2139;&#xfe0f; Requisições à <code>/placa/</code> entram automaticamente em fila no pool de drivers — quando todos os workers estão ocupados, a requisição aguarda até 300s antes de expirar.</p>
+        <button class="btn btn-secondary" onclick="refreshAll()">↻ Atualizar</button>
+        <button class="btn btn-danger" id="btn-restart" onclick="restartRpa()">⟲ Reiniciar RPA</button>
+        <a href="/logout" class="btn btn-secondary">Sair</a>
       </div>
     </div>
+  </header>
 
-    <!-- ═══════════════════════════════════════════════════════
-         CRIAÇÃO DE BANCO DE DADOS
-         ═══════════════════════════════════════════════════════ -->
-    <div class="card rounded-xl p-5" id="batch-section">
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="text-sm font-bold text-white flex items-center gap-2">
-          🗄️ Criação de Banco de Dados
-        </h2>
-        <button onclick="toggleBatch()" class="text-xs text-slate-500 hover:text-white" id="batch-toggle-btn">▼ Recolher</button>
-      </div>
-
-      <div id="batch-body">
-        <!-- FORM -->
-        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
-
-          <!-- Coluna 1: Gerador de Placas -->
-          <div class="space-y-3">
-            <div>
-              <label class="text-xs text-slate-400 block mb-1">Nome do Lote</label>
-              <input id="batch-nome" type="text" placeholder="Ex.: Campanha Março 2026"
-                class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
-            </div>
-
-            <!-- Controles do gerador -->
-            <div class="p-4 rounded-lg space-y-3" style="background:#0f172a;border:1px solid #1e3a5f">
-              <h3 class="text-xs font-bold text-emerald-400 mb-1">&#x1f3b2; Gerador de Placas Aleatórias</h3>
-
-              <div class="grid grid-cols-2 gap-3">
-                <div>
-                  <label class="text-xs text-slate-500 block mb-1">Quantidade</label>
-                  <input id="gen-qty" type="number" min="1" max="5000" value="100"
-                    class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500" />
-                </div>
-                <div>
-                  <label class="text-xs text-slate-500 block mb-1">Formato</label>
-                  <select id="gen-format"
-                    class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500">
-                    <option value="both" selected>Ambos</option>
-                    <option value="old">Antigo &mdash; ABC1234</option>
-                    <option value="mercosul">Mercosul &mdash; ABC1D23</option>
-                  </select>
-                </div>
-              </div>
-
-              <div class="flex items-center gap-2">
-                <input type="checkbox" id="gen-dedup" checked class="accent-emerald-500">
-                <label for="gen-dedup" class="text-xs text-slate-400">Excluir placas já no banco (consultadas com sucesso)</label>
-              </div>
-
-              <button onclick="gerarPlacas()" id="btn-gerar"
-                class="w-full py-2 rounded-lg text-sm font-bold transition-colors"
-                style="background:#065f46;color:#6ee7b7;border:1px solid #059669">
-                &#x1f3b2; Gerar Placas
-              </button>
-            </div>
-
-            <!-- Preview das placas geradas -->
-            <div>
-              <div class="flex items-center justify-between mb-1">
-                <span class="text-xs text-slate-500">Placas geradas: <span id="batch-count" class="text-white font-bold">0</span></span>
-                <button onclick="clearPlacas()" class="text-xs text-slate-600 hover:text-red-400">&#x2715; Limpar</button>
-              </div>
-              <div id="plate-preview" class="bg-slate-800 border border-slate-700 rounded-lg p-3 max-h-44 overflow-auto font-mono text-xs text-slate-300 leading-5">
-                <span class="text-slate-600 italic">Nenhuma placa gerada ainda.</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Coluna 2: Ações -->
-          <div class="space-y-3">
-            <div class="p-4 rounded-lg" style="background:#0f172a;border:1px solid #1e3a5f">
-              <h3 class="text-xs font-bold text-blue-400 mb-3">&#x25b6; Executar Agora</h3>
-              <p class="text-xs text-slate-500 mb-3">Usa todos os workers disponíveis do pool simultaneamente. Gere as placas e clique para iniciar.</p>
-              <button onclick="criarManual()" id="btn-manual"
-                class="w-full py-2.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-sm font-bold transition-colors">
-                &#x25b6; Criar Manual
-              </button>
-            </div>
-
-            <!-- DESCOBRIR PLACAS -->
-            <div class="p-4 rounded-lg" style="background:#0f172a;border:1px solid #78350f55">
-              <h3 class="text-xs font-bold text-amber-400 mb-1">&#x1f50d; Descobrir Placas e Criar no Banco</h3>
-              <p class="text-xs text-slate-500 mb-3">Gera e consulta placas automaticamente até atingir a meta de registros válidos.<br>Não precisa gerar placas manualmente &mdash; tudo automático.</p>
-              <div class="grid grid-cols-2 gap-3 mb-3">
-                <div>
-                  <label class="text-xs text-slate-500 block mb-1">Meta de placas válidas</label>
-                  <input id="discover-target" type="number" min="1" value="50"
-                    placeholder="Sem limite"
-                    class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500" />
-                </div>
-                <div>
-                  <label class="text-xs text-slate-500 block mb-1">Formato</label>
-                  <select id="discover-format"
-                    class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-500">
-                    <option value="both" selected>Ambos</option>
-                    <option value="old">Antigo &mdash; ABC1234</option>
-                    <option value="mercosul">Mercosul &mdash; ABC1D23</option>
-                  </select>
-                </div>
-              </div>
-              <div id="discover-hint" class="text-xs text-slate-600 mb-2"></div>
-              <button onclick="descobrirPlacas()" id="btn-discover"
-                class="w-full py-2.5 rounded-lg text-white text-sm font-bold transition-colors"
-                style="background:#92400e;border:1px solid #d97706">
-                &#x1f50d; Descobrir e Salvar no Banco
-              </button>
-            </div>
-
-            <!-- Resumo rápido do que será processado -->
-            <div class="p-3 rounded-lg text-xs space-y-1" style="background:#0f172a;border:1px solid #334155">
-              <div class="text-slate-500 uppercase tracking-widest mb-1">Resumo</div>
-              <div class="flex justify-between"><span class="text-slate-400">Placas prontas</span><span id="summary-total" class="text-white font-bold">0</span></div>
-              <div class="flex justify-between"><span class="text-slate-400">Formato</span><span id="summary-format" class="text-slate-300">—</span></div>
-              <div class="flex justify-between"><span class="text-slate-400">Workers disponíveis</span><span id="summary-pool" class="text-green-400">—</span></div>
-              <div class="flex justify-between"><span class="text-slate-400">Tempo estimado</span><span id="summary-eta" class="text-yellow-400">—</span></div>
-            </div>
-          </div>
-        </div>
-
-        <!-- TOAST -->
-        <div id="batch-toast" class="hidden mb-4 px-4 py-3 rounded-lg text-sm font-bold"></div>
-
-        <!-- LOTES ATIVOS / HISTÓRICO -->
+  <main class="max-w-screen-2xl mx-auto px-4 lg:px-6 py-6 space-y-6">
+    <section class="grid grid-cols-1 xl:grid-cols-4 gap-4">
+      <div class="xl:col-span-3 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4" id="summary-cards"></div>
+      <div class="glass rounded-[28px] p-5 space-y-4">
         <div>
-          <div class="flex items-center justify-between mb-2">
-            <h3 class="text-xs text-slate-500 uppercase tracking-widest">Lotes Criados</h3>
-            <button onclick="loadBatchJobs()" class="text-xs text-slate-500 hover:text-white">↺ Atualizar</button>
+          <div class="mini-label">teste operacional</div>
+          <h2 class="text-xl font-black text-white mt-1">Enviar placa para a fila</h2>
+          <p class="text-sm text-slate-400 mt-1">Use para validar a arquitetura assíncrona sem depender da API externa.</p>
+        </div>
+        <form class="space-y-3" onsubmit="enqueueManualTest(event)">
+          <div>
+            <label class="mini-label block mb-2">Placa</label>
+            <input id="manual-plate" required maxlength="8" placeholder="ABC1D23" class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none focus:border-cyan-400" />
           </div>
-          <div class="overflow-auto max-h-72">
-            <table class="w-full text-xs border-collapse">
-              <thead class="sticky top-0" style="background:#1e293b">
-                <tr class="text-slate-500 border-b border-slate-700">
-                  <th class="text-left py-2 pr-3">ID</th>
-                  <th class="text-left py-2 pr-3">Nome</th>
-                  <th class="text-left py-2 pr-3">Status</th>
-                  <th class="text-left py-2 pr-3">Progresso</th>
-                  <th class="text-right py-2 pr-3 whitespace-nowrap">✅ OK</th>
-                  <th class="text-right py-2 pr-3 whitespace-nowrap">🔵 N/E</th>
-                  <th class="text-right py-2 pr-3 whitespace-nowrap">❌ Erro</th>
-                  <th class="text-right py-2">Ação</th>
-                </tr>
-              </thead>
-              <tbody id="batch-tbody">
-                <tr><td colspan="8" class="text-center text-slate-600 py-6">Nenhum lote criado ainda.</td></tr>
-              </tbody>
-            </table>
+          <div>
+            <label class="mini-label block mb-2">Webhook opcional</label>
+            <input id="manual-webhook" placeholder="https://..." class="w-full rounded-2xl border border-slate-700 bg-slate-950/70 px-4 py-3 text-white outline-none focus:border-cyan-400" />
+          </div>
+          <label class="flex items-center gap-2 text-sm text-slate-300"><input id="manual-no-cache" type="checkbox" class="accent-cyan-400">Ignorar cache nesta execução</label>
+          <button id="manual-submit" class="btn btn-primary w-full" type="submit">＋ Enviar para fila</button>
+        </form>
+        <div class="rounded-2xl border border-slate-800 bg-slate-950/60 p-4 text-sm">
+          <div class="mini-label mb-2">resultado</div>
+          <div id="manual-result" class="text-slate-400">Nenhum teste enviado nesta sessão.</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+      <div class="glass rounded-[28px] p-5 xl:col-span-2">
+        <div class="flex items-center justify-between gap-4 flex-wrap mb-4">
+          <div>
+            <div class="mini-label">macro métricas</div>
+            <h2 class="text-2xl font-black text-white mt-1">Fila, entregas e throughput</h2>
+          </div>
+          <div id="live-status" class="pill pill-slate">Aguardando telemetria</div>
+        </div>
+        <div class="grid md:grid-cols-2 gap-5">
+          <div class="rounded-3xl border border-slate-800 bg-slate-950/55 p-5">
+            <div class="flex items-center justify-between mb-3">
+              <span class="mini-label">mix da fila</span>
+              <span id="queue-mix-chip" class="pill pill-blue">—</span>
+            </div>
+            <div class="space-y-3" id="queue-mix"></div>
+          </div>
+          <div class="rounded-3xl border border-slate-800 bg-slate-950/55 p-5">
+            <div class="flex items-center justify-between mb-3">
+              <span class="mini-label">resultado operacional</span>
+              <span id="outcome-chip" class="pill pill-green">—</span>
+            </div>
+            <div class="space-y-3" id="outcome-mix"></div>
+          </div>
+          <div class="rounded-3xl border border-slate-800 bg-slate-950/55 p-5">
+            <div class="flex items-center justify-between mb-3">
+              <span class="mini-label">entregas webhook</span>
+              <span id="callback-chip" class="pill pill-cyan">—</span>
+            </div>
+            <div class="space-y-3" id="callback-mix"></div>
+          </div>
+          <div class="rounded-3xl border border-slate-800 bg-slate-950/55 p-5">
+            <div class="flex items-center justify-between mb-3">
+              <span class="mini-label">micro tempos</span>
+              <span id="runtime-chip" class="pill pill-slate">—</span>
+            </div>
+            <div class="grid grid-cols-2 gap-3 text-sm">
+              <div class="rounded-2xl bg-slate-900/80 border border-slate-800 p-4">
+                <div class="mini-label mb-1">Espera média</div>
+                <div class="text-xl font-black text-white" id="metric-wait">—</div>
+              </div>
+              <div class="rounded-2xl bg-slate-900/80 border border-slate-800 p-4">
+                <div class="mini-label mb-1">Processamento</div>
+                <div class="text-xl font-black text-white" id="metric-processing">—</div>
+              </div>
+              <div class="rounded-2xl bg-slate-900/80 border border-slate-800 p-4">
+                <div class="mini-label mb-1">Jornada total</div>
+                <div class="text-xl font-black text-white" id="metric-total">—</div>
+              </div>
+              <div class="rounded-2xl bg-slate-900/80 border border-slate-800 p-4">
+                <div class="mini-label mb-1">Maior execução</div>
+                <div class="text-xl font-black text-white" id="metric-max">—</div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- QUERIES TABLE + LOG PANEL -->
-    <div class="flex flex-col lg:flex-row gap-4">
-
-      <!-- Table -->
-      <div class="card rounded-xl p-4 flex-1 min-w-0">
-        <div class="flex items-center justify-between mb-3">
-          <h2 class="text-xs text-slate-500 uppercase tracking-widest">Consultas Recentes</h2>
-          <span class="text-xs text-slate-500" id="queries-count">0 registros</span>
+      <div class="glass rounded-[28px] p-5 space-y-4">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <div class="mini-label">firewall snapshot</div>
+            <h2 class="text-2xl font-black text-white mt-1">Admin + Firewall</h2>
+          </div>
+          <a href="/security" class="btn btn-ghost">Abrir Firewall</a>
         </div>
-        <div class="overflow-auto max-h-[60vh]">
-          <table class="w-full text-xs border-collapse">
-            <thead class="sticky top-0" style="background:#1e293b">
-              <tr class="text-slate-500 border-b border-slate-700">
-                <th class="text-left py-2 pr-3 whitespace-nowrap">Hor&aacute;rio</th>
-                <th class="text-left py-2 pr-3">Placa</th>
-                <th class="text-left py-2 pr-3">Status</th>
-                <th class="text-left py-2 pr-3">Origem</th>
-                <th class="text-right py-2 pr-3 whitespace-nowrap">Dura&ccedil;&atilde;o</th>
-                <th class="text-center py-2 pr-3">Tent.</th>
-                <th class="text-left py-2">Erro / Dados</th>
+        <div class="grid grid-cols-2 gap-3" id="security-cards"></div>
+        <div class="rounded-3xl border border-slate-800 bg-slate-950/55 p-4">
+          <div class="flex items-center justify-between mb-3">
+            <span class="mini-label">rotas quentes</span>
+            <span class="pill pill-slate">24h</span>
+          </div>
+          <div id="hot-paths" class="space-y-3 text-sm text-slate-300"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+      <div class="glass rounded-[28px] p-5 xl:col-span-2">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <div class="mini-label">workers ao vivo</div>
+            <h2 class="text-2xl font-black text-white mt-1">Execução micro por worker</h2>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <span id="pool-chip" class="pill pill-blue">—</span>
+            <span id="redis-chip" class="pill pill-slate">Redis —</span>
+          </div>
+        </div>
+        <div class="progress-track mb-4"><div id="pool-progress" class="progress-fill bg-gradient-to-r from-cyan-400 to-blue-500" style="width:0%"></div></div>
+        <div id="workers-grid" class="grid md:grid-cols-2 2xl:grid-cols-3 gap-4">
+          <div class="rounded-3xl border border-slate-800 bg-slate-950/60 p-6 text-slate-500">Carregando workers...</div>
+        </div>
+      </div>
+
+      <div class="glass rounded-[28px] p-5">
+        <div class="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <div class="mini-label">alertas operacionais</div>
+            <h2 class="text-2xl font-black text-white mt-1">Erros e callback</h2>
+          </div>
+          <span class="pill pill-red" id="alerts-chip">—</span>
+        </div>
+        <div class="space-y-4">
+          <div class="rounded-3xl border border-slate-800 bg-slate-950/55 p-4">
+            <div class="mini-label mb-3">falhas de callback</div>
+            <div id="callback-errors" class="space-y-3 text-sm text-slate-300"></div>
+          </div>
+          <div class="rounded-3xl border border-slate-800 bg-slate-950/55 p-4">
+            <div class="mini-label mb-3">erros mais recentes</div>
+            <div id="query-errors" class="space-y-3 text-sm text-slate-300"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid grid-cols-1 xl:grid-cols-12 gap-4">
+      <div class="xl:col-span-8 glass rounded-[28px] p-5">
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <div>
+            <div class="mini-label">fila recente</div>
+            <h2 class="text-2xl font-black text-white mt-1">Placas e entregas recentes</h2>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <span id="queue-table-chip" class="pill pill-cyan">—</span>
+            <span class="pill pill-slate">ações: detalhes · reenfileirar · reenviar webhook</span>
+          </div>
+        </div>
+        <div class="table-shell bg-slate-950/45 overflow-auto">
+          <table>
+            <thead>
+              <tr>
+                <th>Placa / Req</th>
+                <th>Status</th>
+                <th>Tempos</th>
+                <th>Webhook</th>
+                <th>Atualização</th>
+                <th class="text-right">Ações</th>
               </tr>
             </thead>
-            <tbody id="queries-tbody">
-              <tr><td colspan="7" class="text-center text-slate-600 py-8">Carregando...</td></tr>
+            <tbody id="queue-rows">
+              <tr><td colspan="6" class="text-slate-500">Carregando fila...</td></tr>
             </tbody>
           </table>
         </div>
       </div>
 
-      <!-- Log Panel -->
-      <div class="card rounded-xl p-4 w-full lg:w-96 flex-shrink-0" id="log-panel">
-        <h2 class="text-xs text-slate-500 uppercase tracking-widest mb-1">Logs da Consulta</h2>
-        <p class="text-xs text-slate-600 mb-3" id="log-panel-title">Clique em uma linha para ver os logs</p>
-        <div id="log-entries" class="space-y-1 text-xs overflow-auto max-h-[60vh]">
-          <p class="text-slate-600 italic">—</p>
-        </div>
-      </div>
-
-    </div>
-  </div>
-
-<script>
-const API = '';  // mesmo origin
-
-let _autoInterval = null;
-let _selectedReqId = null;
-let _queriesMap    = {};
-
-// ----------------------------------------------------------------- helpers
-function fmt(utcStr) {
-  if (!utcStr) return '—';
-  const d = new Date(utcStr);
-  return d.toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo',
-    day:'2-digit', month:'2-digit', year:'2-digit',
-    hour:'2-digit', minute:'2-digit', second:'2-digit' });
-}
-function dur(s) {
-  if (s == null) return '—';
-  return s.toFixed(1) + 's';
-}
-function badge(status, cached) {
-  if (cached) return `<span class="badge-cache px-2 py-0.5 rounded-full text-xs">cache</span>`;
-  const map   = { ok:'badge-ok', error:'badge-error', invalid_data:'badge-invalid', pending:'badge-pending', not_found:'badge-notfound' };
-  const label = { ok:'OK', error:'ERRO', invalid_data:'INVÁLIDO', pending:'AGUARDANDO', not_found:'N/A' };
-  const cls = map[status] || 'badge-pending';
-  return `<span class="${cls} px-2 py-0.5 rounded-full text-xs">${label[status] || status}</span>`;
-}
-
-// ----------------------------------------------------------------- fetch calls
-async function fetchJSON(url) {
-  const r = await fetch(API + url);
-  // Se o servidor redirecionou para /login, a sessão expirou
-  const ct = r.headers.get('content-type') || '';
-  if (!ct.includes('application/json')) {
-    // Resposta HTML = fomos redirecionados para o login
-    if (r.url && r.url.includes('/login')) {
-      window.location.href = '/login';
-      throw new Error('Sessão expirada — redirecionando...');
-    }
-    throw new Error(`Resposta inesperada do servidor (${r.status})`);
-  }
-  if (!r.ok) throw new Error(r.statusText);
-  return r.json();
-}
-
-// ----------------------------------------------------------------- render metrics
-function renderMetrics(stats, health) {
-  const total    = stats.total      ?? 0;
-  const ok       = stats.ok         ?? 0;
-  const errors   = (stats.errors ?? 0) + (stats.invalid ?? 0);
-  const notFound = stats.not_found  ?? 0;
-  const cache    = stats.from_cache ?? 0;
-  const succRate = total > 0 ? Math.round(ok   / total * 100) : 0;
-  const errRate  = total > 0 ? Math.round(errors / total * 100) : 0;
-  const avgDur   = stats.avg_duration_s != null ? stats.avg_duration_s.toFixed(1) + 's' : '—';
-  const errColor = errRate > 15 ? 'text-red-400' : errRate > 5 ? 'text-orange-400' : 'text-green-400';
-
-  const cards = [
-    {
-      icon: '📊', label: 'Total Consul.', value: total, color: 'text-white',
-      sub: `<div class="mini-bar"><div class="mini-bar-fill bg-slate-400" style="width:100%"></div></div>`
-    },
-    {
-      icon: '✅', label: 'Bem-sucedidas', value: ok, color: 'text-green-400',
-      sub: `<div class="mini-bar"><div class="mini-bar-fill bg-green-500" style="width:${succRate}%"></div></div><span class="text-xs text-slate-500">${succRate}% sucesso</span>`
-    },
-    {
-      icon: '❌', label: 'Erros', value: errors, color: errRate > 15 ? 'text-red-400' : errRate > 5 ? 'text-orange-400' : 'text-slate-400',
-      sub: `<div class="mini-bar"><div class="mini-bar-fill bg-red-500" style="width:${errRate}%"></div></div><span class="text-xs ${errColor}">${errRate}% erros</span>`
-    },
-    {
-      icon: '🔍', label: 'Não Encontrado', value: notFound, color: 'text-sky-400',
-      sub: `<div class="mini-bar"><div class="mini-bar-fill bg-sky-500" style="width:${total>0?Math.round(notFound/total*100):0}%"></div></div>`
-    },
-    {
-      icon: '⚡', label: 'Do Cache', value: cache, color: 'text-purple-400',
-      sub: `<div class="mini-bar"><div class="mini-bar-fill bg-purple-500" style="width:${total>0?Math.round(cache/total*100):0}%"></div></div>`
-    },
-    {
-      icon: '⏱', label: 'Duração Média', value: avgDur, color: 'text-blue-400',
-      sub: `<span class="text-xs text-slate-500">por consulta</span>`
-    },
-    {
-      icon: '🪪', label: 'Placas Únicas', value: stats.unique_placas ?? 0, color: 'text-cyan-400',
-      sub: `<span class="text-xs text-slate-500">consultadas</span>`
-    },
-    {
-      icon: '🗄️', label: 'No Banco', value: stats.db_placas ?? 0, color: 'text-emerald-400',
-      sub: `<span class="text-xs text-slate-500">registros OK</span>`
-    },
-  ];
-
-  document.getElementById('metrics').innerHTML = cards.map(c => `
-    <div class="metric-card rounded-xl p-3">
-      <div class="flex items-center justify-between mb-1">
-        <span class="text-base leading-none">${c.icon}</span>
-        <span class="text-2xl font-bold ${c.color}">${c.value}</span>
-      </div>
-      <div class="text-xs text-slate-500 mb-1">${c.label}</div>
-      <div class="text-xs">${c.sub}</div>
-    </div>`).join('');
-
-  // update health detail fields
-  document.getElementById('hd-success').textContent = succRate + '%';
-  document.getElementById('hd-success').className = `font-bold text-sm ${succRate >= 90 ? 'text-green-400' : succRate >= 70 ? 'text-yellow-400' : 'text-red-400'}`;
-  document.getElementById('hd-error').textContent = errRate + '%';
-  document.getElementById('hd-error').className = `font-bold text-sm ${errRate <= 5 ? 'text-green-400' : errRate <= 15 ? 'text-orange-400' : 'text-red-400'}`;
-}
-
-// ----------------------------------------------------------------- render system health
-function renderSystemHealth(stats, health) {
-  const total    = stats.total    ?? 0;
-  const ok       = stats.ok       ?? 0;
-  const errors   = (stats.errors ?? 0) + (stats.invalid ?? 0);
-  const errRate  = total > 0 ? errors / total : 0;
-  const poolAvail = health.pool_available ?? 0;
-  const poolSize  = Math.max(1, health.pool_size ?? 1);
-
-  let score = 0;
-  score += Math.max(0, 35 * (1 - errRate * 4));      // error rate: up to 35pts
-  score += (poolAvail / poolSize) * 35;               // pool avail: up to 35pts
-  score += health.status === 'ok' ? 20 : 0;           // api online: 20pts
-  score += total > 10 ? 10 : total > 0 ? 5 : 0;      // has data: up to 10pts
-  score  = Math.min(100, Math.round(score));
-
-  const barColor = score >= 80 ? 'bg-green-500' : score >= 55 ? 'bg-yellow-500' : 'bg-red-500';
-  const labelColor = score >= 80 ? 'text-green-400' : score >= 55 ? 'text-yellow-400' : 'text-red-400';
-  const emoji = score >= 80 ? '🟢' : score >= 55 ? '🟡' : '🔴';
-
-  const bar = document.getElementById('health-score-bar');
-  bar.style.width = score + '%';
-  bar.className = `health-bar-fill ${barColor}`;
-
-  const lbl = document.getElementById('health-score-label');
-  lbl.textContent = emoji + ' ' + score + '/100';
-  lbl.className = `text-xl font-bold ${labelColor}`;
-
-  document.getElementById('hd-pool').textContent = poolAvail + '/' + poolSize + ' livres';
-}
-
-// ----------------------------------------------------------------- render timeline
-function renderTimeline(queries) {
-  const colours = { ok:'#22c55e', error:'#ef4444', invalid_data:'#f97316', not_found:'#38bdf8', pending:'#64748b' };
-  const last40  = queries.slice(0, 40).reverse();
-  const blocks  = last40.map(q => {
-    const c   = q.cached ? '#c084fc' : (colours[q.status] || '#64748b');
-    const tip = `${q.placa} — ${q.status}${q.cached ? ' (cache)' : ''} — ${dur(q.duration_s)}`;
-    return `<div title="${tip}" class="tl-block" style="background:${c};opacity:0.75"></div>`;
-  }).join('');
-
-  document.getElementById('timeline').innerHTML = blocks ||
-    '<span class="text-xs text-slate-600 italic">Aguardando consultas...</span>';
-
-  // compute throughput (queries in last hour from timestamps)
-  if (queries.length > 1) {
-    const recent = queries.filter(q => {
-      const t = new Date(q.created_at);
-      return (Date.now() - t.getTime()) < 3600000;
-    });
-    const thr = recent.length;
-    document.getElementById('timeline-throughput').innerHTML =
-      `<span class="chip" style="background:#1e3a5f;color:#60a5fa">${thr} consultas/hora</span>`;
-  }
-}
-
-// ----------------------------------------------------------------- render pool
-function renderPool(health) {
-  const size  = health.pool_size      || 0;
-  const avail = health.pool_available || 0;
-  const busy  = size - avail;
-  const util  = size > 0 ? Math.round(busy / size * 100) : 0;
-
-  // utilization bar & chip
-  const utilBar  = document.getElementById('pool-util-bar');
-  const utilChip = document.getElementById('pool-utilization');
-  if (utilBar && utilChip) {
-    utilBar.style.width = util + '%';
-    utilBar.className   = `health-bar-fill ${util > 80 ? 'bg-red-500' : util > 50 ? 'bg-yellow-500' : 'bg-green-500'}`;
-    utilChip.textContent = `${util}% em uso (${busy}/${size})`;
-    utilChip.style.color = util > 80 ? '#f87171' : util > 50 ? '#fbbf24' : '#4ade80';
-  }
-
-  // worker dots
-  let dots = '';
-  for (let i = 0; i < size; i++) {
-    const isBusy = i < busy;
-    dots += `<div class="worker-card ${isBusy ? 'glow-red' : 'glow-green'}" style="background:${isBusy ? '#450a0a' : '#052e16'};border-color:${isBusy ? '#991b1b' : '#166534'}">
-      <div class="text-lg">${isBusy ? '⚙️' : '✅'}</div>
-      <div class="text-xs font-bold ${isBusy ? 'text-red-400' : 'text-green-400'} mt-1">W${i + 1}</div>
-      <div class="text-xs text-slate-500">${isBusy ? 'ocupado' : 'livre'}</div>
-    </div>`;
-  }
-  document.getElementById('pool-status').innerHTML = dots ||
-    '<span class="text-slate-600 text-xs">Pool não inicializado</span>';
-
-  // update summary-pool for plate generator
-  const spEl = document.getElementById('summary-pool');
-  if (spEl) { spEl.dataset.avail = avail; spEl.textContent = avail + ' workers'; }
-
-  // main status dot
-  const dot = document.getElementById('status-dot');
-  dot.className = health.status === 'ok' ? 'pulse-dot bg-green-400' : 'pulse-dot bg-red-400';
-}
-
-// ----------------------------------------------------------------- render infra
-function renderInfra(health) {
-  const redis = health.redis || 'disabled';
-  const redisColor = redis === 'connected' ? 'text-green-400' :
-                     redis === 'disabled'  ? 'text-slate-500' : 'text-red-400';
-  const redisLabel = redis === 'connected' ? '● Conectado' :
-                     redis === 'disabled'  ? '○ Desabilitado' : '✕ Erro';
-  const poolAvail = health.pool_available ?? '?';
-  const poolSize  = health.pool_size      ?? '?';
-  const uptime    = health.uptime_s != null
-    ? (() => { const h = Math.floor(health.uptime_s/3600), m = Math.floor((health.uptime_s%3600)/60), s = health.uptime_s%60;
-               return h ? `${h}h ${m}m` : m ? `${m}m ${s}s` : `${s}s`; })()
-    : '—';
-
-  document.getElementById('infra-status').innerHTML = `
-    <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
-      <div class="flex justify-between items-center">
-        <span class="text-slate-500">🔴 Redis Cache</span>
-        <span class="${redisColor} font-bold">${redisLabel}</span>
-      </div>
-      <div class="flex justify-between items-center">
-        <span class="text-slate-500">⏱ TTL Cache</span>
-        <span class="text-white font-bold">${health.cache_ttl_s ? health.cache_ttl_s + 's' : '—'}</span>
-      </div>
-      <div class="flex justify-between items-center">
-        <span class="text-slate-500">🌐 API Status</span>
-        <span class="text-green-400 font-bold">● Online</span>
-      </div>
-      <div class="flex justify-between items-center">
-        <span class="text-slate-500">⚙️ Pool Chrome</span>
-        <span class="text-blue-400 font-bold">${poolAvail}/${poolSize} livres</span>
-      </div>
-      <div class="flex justify-between items-center">
-        <span class="text-slate-500">🕐 Uptime</span>
-        <span class="text-cyan-400 font-bold">${uptime}</span>
-      </div>
-      <div class="flex justify-between items-center">
-        <span class="text-slate-500">🔑 Auth</span>
-        <span class="text-emerald-400 font-bold">${health.auth_enabled ? '● Ativo' : '○ Desabilit.'}</span>
-      </div>
-    </div>`;
-}
-
-// ----------------------------------------------------------------- render access logs
-function renderAccessLogs(logs) {
-  document.getElementById('access-count').textContent = logs.length;
-  if (!logs.length) {
-    document.getElementById('access-tbody').innerHTML =
-      '<tr><td colspan="7" class="text-center text-slate-600 py-4">Nenhum acesso registrado ainda.</td></tr>';
-    return;
-  }
-  const statusColor = s => s < 300 ? 'text-green-400' : s < 400 ? 'text-yellow-400' : 'text-red-400';
-  const methodColor = m => ({ GET:'text-blue-400', POST:'text-emerald-400', DELETE:'text-red-400' }[m] || 'text-slate-400');
-  document.getElementById('access-tbody').innerHTML = logs.map(l => `
-    <tr class="border-b border-slate-800 hover:bg-slate-800">
-      <td class="py-1.5 pr-3 text-slate-500 whitespace-nowrap">${fmt(l.created_at).split(' ')[1]}</td>
-      <td class="py-1.5 pr-3 font-mono text-slate-300">${l.ip || '—'}</td>
-      <td class="py-1.5 pr-3 font-bold ${methodColor(l.method)}">${l.method}</td>
-      <td class="py-1.5 pr-3 text-slate-400 max-w-[220px] truncate" title="${l.path}">${l.path}</td>
-      <td class="py-1.5 pr-3 text-white font-bold">${l.placa || '<span class="text-slate-600">—</span>'}</td>
-      <td class="py-1.5 pr-3 text-right font-bold ${statusColor(l.status)}">${l.status}</td>
-      <td class="py-1.5 text-right text-slate-400">${l.duration_ms != null ? l.duration_ms.toFixed(0)+'ms' : '—'}</td>
-    </tr>`).join('');
-}
-
-async function loadAccessLogs() {
-  try {
-    const logs = await fetchJSON('/api/access-logs?limit=200');
-    renderAccessLogs(logs);
-  } catch(e) { console.error('access-logs error:', e); }
-}
-
-function toggleAccessLog() {
-  const body = document.getElementById('access-body');
-  const btn  = document.getElementById('access-toggle-btn');
-  const hidden = body.style.display === 'none';
-  body.style.display = hidden ? '' : 'none';
-  btn.textContent = hidden ? '▼ Recolher' : '▶ Expandir';
-}
-
-// ----------------------------------------------------------------- restart RPA
-async function reiniciarRPA() {
-  if (!confirm('Reiniciar o serviço RPA no servidor?\nTodos os workers Chrome serão desligados e reiniciados (~20s de indisponibilidade).')) return;
-  const btn = document.getElementById('btn-reiniciar');
-  btn.disabled = true; btn.textContent = '⏳ Reiniciando...';
-  try {
-    const r = await fetch('/admin/restart', { method: 'POST' });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.detail || r.statusText);
-    alert('✅ ' + data.message);
-  } catch(e) {
-    alert('Erro: ' + e.message);
-  } finally {
-    setTimeout(() => { btn.disabled = false; btn.innerHTML = '&#x21bb; Reiniciar RPA'; }, 25000);
-  }
-}
-
-// ----------------------------------------------------------------- render queries
-function renderQueries(queries) {
-  _queriesMap = {};
-  queries.forEach(q => { _queriesMap[q.req_id] = q; });
-  document.getElementById('queries-count').textContent = queries.length + ' registros';
-  if (!queries.length) {
-    document.getElementById('queries-tbody').innerHTML =
-      '<tr><td colspan="7" class="text-center text-slate-600 py-8">Nenhuma consulta registrada ainda.</td></tr>';
-    return;
-  }
-  const rowClass = { ok:'row-ok', error:'row-error', invalid_data:'row-invalid', pending:'row-pending' };
-  document.getElementById('queries-tbody').innerHTML = queries.map(q => {
-    const isCache   = !!q.cached;
-    const isBatch   = q.req_id && q.req_id.startsWith('b');
-    const rc        = isCache ? '' : (rowClass[q.status] || 'row-pending');
-    const isSelected = q.req_id === _selectedReqId ? 'row-selected' : '';
-    const truncErr  = q.error_msg ? q.error_msg.substring(0, 60) + (q.error_msg.length > 60 ? '\u2026' : '') : '';
-    const dadosStr  = q.dados ? (() => {
-      try {
-        const d = JSON.parse(q.dados);
-        return `<span class="text-green-500">${d.veiculo || ''}</span>`;
-      } catch { return ''; }
-    })() : '';
-    const origemBadge = isBatch
-      ? `<span style="background:#312e8122;color:#a78bfa;border:1px solid #312e8155" class="px-2 py-0.5 rounded-full text-xs">lote</span>`
-      : `<span style="background:#0f4a3a22;color:#34d399;border:1px solid #0f4a3a55" class="px-2 py-0.5 rounded-full text-xs">manual</span>`;
-    return `<tr class="hoverable border-b border-slate-800 ${rc} ${isSelected}"
-              onclick="selectQuery('${q.req_id}', '${q.placa}', this)">
-      <td class="py-2 pr-3 text-slate-400 whitespace-nowrap">${fmt(q.created_at)}</td>
-      <td class="py-2 pr-3 text-white font-bold">${q.placa}</td>
-      <td class="py-2 pr-3">${badge(q.status, isCache)}</td>
-      <td class="py-2 pr-3">${origemBadge}</td>
-      <td class="py-2 pr-3 text-right whitespace-nowrap ${q.duration_s > 60 ? 'text-orange-400' : 'text-slate-300'}">${dur(q.duration_s)}</td>
-      <td class="py-2 pr-3 text-center text-slate-400">${q.attempts || '\u2014'}</td>
-      <td class="py-2 text-slate-400">${truncErr || dadosStr}</td>
-    </tr>`;
-  }).join('');
-}
-
-// ----------------------------------------------------------------- log panel
-async function selectQuery(reqId, placa, row) {
-  // deselect previous
-  document.querySelectorAll('.row-selected').forEach(r => r.classList.remove('row-selected'));
-  row.classList.add('row-selected');
-  _selectedReqId = reqId;
-
-  document.getElementById('log-panel-title').textContent = `Placa ${placa} · req ${reqId}`;
-  document.getElementById('log-entries').innerHTML = '<p class="text-slate-600">Carregando...</p>';
-
-  try {
-    const logs = await fetchJSON(`/api/queries/${reqId}/logs`);
-    if (logs.length) {
-      document.getElementById('log-entries').innerHTML = logs.map(l => `
-        <div class="flex gap-2 py-0.5 border-b border-slate-800">
-          <span class="whitespace-nowrap text-slate-600">${fmt(l.created_at).split(' ')[1]}</span>
-          <span class="log-${l.level} font-bold w-16 flex-shrink-0">${l.level}</span>
-          <span class="text-slate-300 break-all">${l.message}</span>
-        </div>`).join('');
-      return;
-    }
-
-    // Sem logs na tabela — monta fallback com dados da própria query
-    const q = _queriesMap[reqId];
-    if (!q) {
-      document.getElementById('log-entries').innerHTML = '<p class="text-slate-600 italic">Sem informações disponíveis.</p>';
-      return;
-    }
-    const scMap = { ok:'text-green-400', error:'text-red-400', not_found:'text-yellow-400',
-                    invalid_data:'text-orange-400', pending:'text-slate-400' };
-    const sc = scMap[q.status] || 'text-slate-400';
-    const entries = [];
-
-    // Linha 1: status + duração
-    entries.push(`<div class="flex gap-2 py-1 border-b border-slate-800">
-      <span class="whitespace-nowrap text-slate-600">${fmt(q.created_at).split(' ')[1]}</span>
-      <span class="font-bold w-16 flex-shrink-0 ${sc}">${(q.status||'').toUpperCase()}</span>
-      <span class="text-slate-400">Duração: <b class="text-white">${dur(q.duration_s)}</b> &nbsp;·&nbsp; Tentativas: <b class="text-white">${q.attempts || 1}</b></span>
-    </div>`);
-
-    // Linha 2: mensagem de erro completa
-    if (q.error_msg) {
-      entries.push(`<div class="flex gap-2 py-1 border-b border-slate-800">
-        <span class="whitespace-nowrap text-slate-600">${fmt(q.finished_at || q.created_at).split(' ')[1]}</span>
-        <span class="log-ERROR font-bold w-16 flex-shrink-0">ERROR</span>
-        <span class="text-red-300 break-all">${q.error_msg}</span>
-      </div>`);
-    }
-
-    // Linha 3: dados do veículo (se OK)
-    if (q.dados) {
-      try {
-        const d = JSON.parse(q.dados);
-        const lines = Object.entries(d)
-          .filter(([,v]) => v)
-          .map(([k,v]) => `<b class="text-slate-400">${k}</b>: <span class="text-green-400">${v}</span>`)
-          .join(' &nbsp;·&nbsp; ');
-        entries.push(`<div class="flex gap-2 py-1 border-b border-slate-800">
-          <span class="whitespace-nowrap text-slate-600">${fmt(q.finished_at).split(' ')[1]}</span>
-          <span class="log-INFO font-bold w-16 flex-shrink-0">INFO</span>
-          <span class="text-slate-300 break-all text-xs leading-5">${lines}</span>
-        </div>`);
-      } catch {}
-    }
-
-    if (!entries.length) {
-      const statusLabels = { pending:'AGUARDANDO', ok:'OK', not_found:'N/A', error:'ERRO', invalid_data:'N/A' };
-      entries.push(`<p class="text-slate-500 italic text-sm">Status: <b>${statusLabels[q.status] || q.status}</b> — consulta ainda n&atilde;o processada ou sem informa&ccedil;&otilde;es adicionais.</p>`);
-    }
-    document.getElementById('log-entries').innerHTML = entries.join('');
-  } catch (e) {
-    document.getElementById('log-entries').innerHTML = `<p class="text-red-400">Erro: ${e.message}</p>`;
-  }
-}
-
-// ----------------------------------------------------------------- plate generator
-const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-const DIGITS  = '0123456789';
-let _generatedPlates = [];
-let _knownOkPlates   = new Set();
-
-function rndChar(set) { return set[Math.floor(Math.random() * set.length)]; }
-function genOld()     { return rndChar(LETTERS)+rndChar(LETTERS)+rndChar(LETTERS)+rndChar(DIGITS)+rndChar(DIGITS)+rndChar(DIGITS)+rndChar(DIGITS); }
-function genMercosul(){ return rndChar(LETTERS)+rndChar(LETTERS)+rndChar(LETTERS)+rndChar(DIGITS)+rndChar(LETTERS)+rndChar(DIGITS)+rndChar(DIGITS); }
-
-function updateSummary(plates) {
-  document.getElementById('summary-total').textContent = plates.length;
-  const fmt = document.getElementById('gen-format').value;
-  document.getElementById('summary-format').textContent = { both:'Ambos', old:'Antigo', mercosul:'Mercosul' }[fmt];
-  const poolEl = document.getElementById('summary-pool');
-  const avail  = parseInt(poolEl.dataset.avail || '10');
-  poolEl.textContent = avail + ' workers';
-  const etaS = Math.ceil(plates.length * 20 / Math.max(1, avail));
-  const m = Math.floor(etaS / 60), s = etaS % 60;
-  document.getElementById('summary-eta').textContent = m > 0 ? `~${m}min ${s}s` : `~${etaS}s`;
-}
-
-async function gerarPlacas() {
-  const qty   = Math.max(1, Math.min(5000, parseInt(document.getElementById('gen-qty').value) || 100));
-  const fmt   = document.getElementById('gen-format').value;
-  const dedup = document.getElementById('gen-dedup').checked;
-
-  if (dedup) {
-    try {
-      const db = await fetchJSON('/batch/database?limit=50000');
-      _knownOkPlates = new Set((db.items || db).map(r => r.placa));
-    } catch(e) { _knownOkPlates = new Set(); }
-  } else {
-    _knownOkPlates = new Set();
-  }
-
-  const btn = document.getElementById('btn-gerar');
-  btn.disabled = true; btn.innerHTML = 'Gerando...';
-
-  const seen = new Set(_knownOkPlates);
-  const plates = [];
-  let attempts = 0;
-  while (plates.length < qty && attempts < qty * 20) {
-    attempts++;
-    let p;
-    if (fmt === 'old')           p = genOld();
-    else if (fmt === 'mercosul') p = genMercosul();
-    else                         p = Math.random() < 0.5 ? genOld() : genMercosul();
-    if (!seen.has(p)) { seen.add(p); plates.push(p); }
-  }
-
-  _generatedPlates = plates;
-  document.getElementById('batch-count').textContent = plates.length;
-
-  const preview = document.getElementById('plate-preview');
-  if (!plates.length) {
-    preview.innerHTML = '<span class="text-red-400">Não foi possível gerar placas (todas já estão no banco).</span>';
-  } else {
-    const perCol = Math.ceil(plates.length / 3);
-    const cols = [0,1,2].map(i => {
-      const sl = plates.slice(i*perCol, (i+1)*perCol);
-      return sl.length ? `<div>${sl.map(p=>`<div class="text-emerald-300">${p}</div>`).join('')}</div>` : '';
-    }).filter(Boolean);
-    preview.innerHTML = `<div class="grid gap-4" style="grid-template-columns:repeat(${cols.length},1fr)">${cols.join('')}</div>`;
-  }
-
-  updateSummary(plates);
-  btn.disabled = false; btn.innerHTML = '&#x1f3b2; Gerar Placas';
-}
-
-function clearPlacas() {
-  _generatedPlates = [];
-  document.getElementById('batch-count').textContent = '0';
-  document.getElementById('plate-preview').innerHTML = '<span class="text-slate-600 italic">Nenhuma placa gerada ainda.</span>';
-  updateSummary([]);
-}
-
-// ----------------------------------------------------------------- batch helpers
-function toggleBatch() {
-  const body = document.getElementById('batch-body');
-  const btn  = document.getElementById('batch-toggle-btn');
-  const hidden = body.style.display === 'none';
-  body.style.display = hidden ? '' : 'none';
-  btn.textContent = hidden ? '▼ Recolher' : '▶ Expandir';
-}
-
-function showBatchToast(msg, ok = true) {
-  const t = document.getElementById('batch-toast');
-  t.className = `mb-4 px-4 py-3 rounded-lg text-sm font-bold ${ok ? 'bg-green-900 text-green-300 border border-green-700' : 'bg-red-900 text-red-300 border border-red-700'}`;
-  t.textContent = msg;
-  t.classList.remove('hidden');
-  setTimeout(() => t.classList.add('hidden'), 5000);
-}
-
-// ----------------------------------------------------------------- batch actions
-async function descobrirPlacas() {
-  const target = parseInt(document.getElementById('discover-target').value) || 50;
-  const formato = document.getElementById('discover-format').value;
-  const nome = document.getElementById('batch-nome').value.trim() || `Descoberta — meta ${target} OK`;
-  const btn = document.getElementById('btn-discover');
-  btn.disabled = true; btn.innerHTML = '&#x23f3; Calculando e enviando...';
-  document.getElementById('discover-hint').textContent = '';
-  try {
-    const r = await fetch('/batch/discover', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target_ok: target, formato, nome })
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.detail || r.statusText);
-    const hitPct = Math.round((data.hit_rate_est || 0) * 100);
-    document.getElementById('discover-hint').innerHTML =
-      `<span class="text-slate-400">Taxa histórica: <b class="text-amber-400">${hitPct}%</b> &nbsp;·&nbsp; `+
-      `Consultando <b class="text-white">${data.total}</b> placas &nbsp;·&nbsp; `+
-      `${data.existing_excluded} já no banco excluídas</span>`;
-    showBatchToast(`🔍 Descoberta iniciada! Lote ${data.job_id} com ${data.total} placas — meta: ${target} válidas.`);
-    setTimeout(loadBatchJobs, 1000);
-  } catch(e) {
-    showBatchToast('Erro: ' + e.message, false);
-  } finally {
-    btn.disabled = false; btn.innerHTML = '&#x1f50d; Descobrir e Salvar no Banco';
-  }
-}
-
-async function criarManual() {
-  if (!_generatedPlates.length) { showBatchToast('Gere as placas primeiro clicando em "Gerar Placas".', false); return; }
-  const nome = document.getElementById('batch-nome').value.trim() || 'Lote Manual';
-  const btn  = document.getElementById('btn-manual');
-  btn.disabled = true; btn.textContent = 'Enviando...';
-  try {
-    const r = await fetch('/batch/manual', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ placas: _generatedPlates, nome })
-    });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.detail || r.statusText);
-    showBatchToast(`✅ Lote ${data.job_id} criado com ${data.total} placas — executando agora!`);
-    clearPlacas();
-    setTimeout(loadBatchJobs, 1000);
-  } catch(e) {
-    showBatchToast('Erro: ' + e.message, false);
-  } finally {
-    btn.disabled = false; btn.innerHTML = '&#x25b6; Criar Manual';
-  }
-}
-
-async function cancelJob(job_id, fromActive = false) {
-  if (!confirm(`Cancelar lote ${job_id}?\nTodas as placas pendentes serão descartadas.`)) return;
-  const btns = document.querySelectorAll(`[data-cancel-id="${job_id}"]`);
-  btns.forEach(b => { b.disabled = true; b.textContent = '...'; });
-  try {
-    const r = await fetch(`/batch/jobs/${job_id}`, { method: 'DELETE' });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.detail || r.statusText);
-    showBatchToast(`✅ Lote ${job_id} cancelado.`);
-    loadBatchJobs();
-  } catch(e) {
-    showBatchToast('Erro: ' + e.message, false);
-    btns.forEach(b => { b.disabled = false; b.textContent = '✕ Cancelar'; });
-  }
-}
-
-function renderActiveJobs(jobs) {
-  const active = jobs.filter(j => ['executando','aguardando','pendente'].includes(j.status));
-  const countEl = document.getElementById('active-jobs-count');
-  const bodyEl  = document.getElementById('active-jobs-body');
-  if (!countEl || !bodyEl) return;
-
-  if (!active.length) {
-    countEl.textContent = 'nenhum ativo';
-    bodyEl.innerHTML = '<p class="text-xs text-slate-600 italic">Nenhum job ativo no momento.</p>';
-    return;
-  }
-
-  countEl.innerHTML = `<span class="chip" style="background:#451a03;color:#fbbf24;border:1px solid #92400e">${active.length} ativo${active.length > 1 ? 's' : ''}</span>`;
-
-  const statusClsMap = {
-    executando: { cls:'bs-executando', icon:'⚙️' },
-    aguardando: { cls:'bs-aguardando', icon:'⏳' },
-    pendente:   { cls:'bs-pendente',   icon:'▶' },
-  };
-
-  bodyEl.innerHTML = active.map(j => {
-    const pct = j.total > 0 ? Math.round(j.done / j.total * 100) : 0;
-    const sl  = statusClsMap[j.status] || { cls:'bs-pendente', icon:'?' };
-    const barColor = j.status === 'executando' ? 'bg-yellow-500' : 'bg-blue-500';
-    return `
-    <div class="flex items-center gap-3 py-2 border-b border-slate-800 last:border-0 flex-wrap">
-      <span class="${sl.cls} px-2 py-0.5 rounded-full text-xs whitespace-nowrap">${sl.icon} ${j.status}</span>
-      <span class="text-white font-bold text-xs whitespace-nowrap">#${j.job_id}</span>
-      <span class="text-slate-400 text-xs truncate max-w-[160px]" title="${j.nome}">${j.nome}</span>
-      <div class="flex items-center gap-2 flex-1 min-w-[140px]">
-        <div class="progress-bar-track flex-1">
-          <div class="progress-bar-fill ${barColor}" style="width:${pct}%"></div>
-        </div>
-        <span class="text-slate-400 text-xs whitespace-nowrap">${j.done}/${j.total} (${pct}%)</span>
-      </div>
-      <div class="flex gap-3 text-xs whitespace-nowrap">
-        <span class="text-green-400">✅ ${j.ok || 0}</span>
-        <span class="text-sky-400">🔵 ${j.not_found || 0}</span>
-        <span class="text-red-400">❌ ${j.errors || 0}</span>
-      </div>
-      <button data-cancel-id="${j.job_id}" onclick="cancelJob('${j.job_id}', true)"
-        class="px-3 py-1 rounded text-xs font-bold transition-colors flex-shrink-0"
-        style="background:#450a0a;border:1px solid #991b1b;color:#fca5a5"
-        onmouseover="this.style.background='#7f1d1d'" onmouseout="this.style.background='#450a0a'">
-        ✕ Cancelar
-      </button>
-    </div>`;
-  }).join('');
-}
-
-async function loadBatchJobs() {
-  try {
-    const jobs = await fetchJSON('/batch/jobs?limit=30');
-    const tbody = document.getElementById('batch-tbody');
-    renderActiveJobs(jobs);
-    if (!jobs.length) {
-      tbody.innerHTML = '<tr><td colspan="8" class="text-center text-slate-600 py-6">Nenhum lote criado ainda.</td></tr>';
-      return;
-    }
-    const statusLabels = {
-      executando: { cls:'bs-executando', icon:'⚙️' },
-      concluido:  { cls:'bs-concluido',  icon:'✅' },
-      pendente:   { cls:'bs-pendente',   icon:'⏳' },
-      aguardando: { cls:'bs-aguardando', icon:'▶' },
-      cancelado:  { cls:'bs-cancelado',  icon:'✕' },
-    };
-    tbody.innerHTML = jobs.map(j => {
-      const pct = j.total > 0 ? Math.round(j.done / j.total * 100) : 0;
-      const barColor = j.status === 'concluido' ? 'bg-green-500' : j.status === 'cancelado' ? 'bg-slate-500' : 'bg-yellow-500';
-      const sl = statusLabels[j.status] || { cls:'bs-pendente', icon:'?' };
-      const isActive = ['executando','aguardando'].includes(j.status);
-      const canCancel = ['executando','aguardando','pendente'].includes(j.status);
-      return `<tr class="border-b border-slate-800 hover:bg-slate-800 ${isActive ? 'animate-pulse-subtle' : ''}">
-        <td class="py-2 pr-3 text-slate-400 font-mono">${j.job_id}</td>
-        <td class="py-2 pr-3 text-white max-w-[120px] truncate" title="${j.nome}">${j.nome}</td>
-        <td class="py-2 pr-3"><span class="${sl.cls} px-2 py-0.5 rounded-full text-xs">${sl.icon} ${j.status}</span></td>
-        <td class="py-2 pr-3 min-w-[120px]">
-          <div class="flex items-center gap-2">
-            <div class="progress-bar-track flex-1">
-              <div class="progress-bar-fill ${barColor}" style="width:${pct}%"></div>
-            </div>
-            <span class="text-slate-400 whitespace-nowrap">${j.done}/${j.total}</span>
+      <div class="xl:col-span-4 glass rounded-[28px] p-5">
+        <div class="flex items-center justify-between gap-3 mb-4">
+          <div>
+            <div class="mini-label">detalhe</div>
+            <h2 class="text-2xl font-black text-white mt-1">Inspeção da requisição</h2>
           </div>
-        </td>
-        <td class="py-2 pr-3 text-right text-green-400 font-bold">${j.ok || 0}</td>
-        <td class="py-2 pr-3 text-right text-sky-400">${j.not_found || 0}</td>
-        <td class="py-2 pr-3 text-right text-red-400">${j.errors || 0}</td>
-        <td class="py-2 text-right">
-          ${canCancel ? `<button data-cancel-id="${j.job_id}" onclick="cancelJob('${j.job_id}')" class="px-2 py-1 rounded text-xs font-bold transition-colors" style="background:#450a0a;border:1px solid #991b1b;color:#fca5a5" onmouseover="this.style.background='#7f1d1d'" onmouseout="this.style.background='#450a0a'">✕ Cancelar</button>` : '<span class="text-slate-700 text-xs">—</span>'}
-        </td>
-      </tr>`;
-    }).join('');
-    renderActiveJobs(jobs);
-  } catch(e) {
-    console.error('Erro batch jobs:', e);
-  }
-}
+          <span id="detail-chip" class="pill pill-slate">Nenhuma seleção</span>
+        </div>
+        <div id="detail-panel" class="space-y-4 text-sm text-slate-300">
+          <div class="rounded-3xl border border-slate-800 bg-slate-950/55 p-5 text-slate-500">
+            Selecione uma linha para inspecionar logs, payload e resultado final.
+          </div>
+        </div>
+      </div>
+    </section>
 
-// ----------------------------------------------------------------- init
-// ----------------------------------------------------------------- main refresh
-async function refresh() {
-  document.getElementById('last-refresh').textContent = new Date().toLocaleTimeString('pt-BR');
+    <section class="glass rounded-[28px] p-5">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div>
+          <div class="mini-label">tráfego</div>
+          <h2 class="text-2xl font-black text-white mt-1">Acessos recentes da API</h2>
+        </div>
+        <span id="access-chip" class="pill pill-slate">—</span>
+      </div>
+      <div class="table-shell bg-slate-950/45 overflow-auto">
+        <table>
+          <thead>
+            <tr>
+              <th>Horário</th>
+              <th>IP</th>
+              <th>Método</th>
+              <th>Rota</th>
+              <th>Placa</th>
+              <th>Status</th>
+              <th>Duração</th>
+            </tr>
+          </thead>
+          <tbody id="access-rows">
+            <tr><td colspan="7" class="text-slate-500">Carregando acessos...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
 
-  let health = {}, stats = {}, queries = [];
+  <div id="toast" class="toast hidden"></div>
 
-  // fetch all three in parallel — individual failures don't block the rest
-  await Promise.all([
-    fetchJSON('/health').then(d  => { health  = d; }).catch(e => console.warn('health error:', e)),
-    fetchJSON('/api/stats').then(d => { stats   = d; }).catch(e => console.warn('stats error:', e)),
-    fetchJSON('/api/queries?limit=500').then(d => { queries = d; }).catch(e => console.warn('queries error:', e)),
-  ]);
+  <script>
+    const API = '';
+    let autoTimer = null;
+    let selectedReqId = null;
+    let queueMap = {};
 
-  try { renderMetrics(stats, health);     } catch(e) { console.error('renderMetrics:', e); }
-  try { renderSystemHealth(stats, health);} catch(e) { console.error('renderSystemHealth:', e); }
-  try { renderPool(health);               } catch(e) { console.error('renderPool:', e); }
-  try { renderInfra(health);              } catch(e) { console.error('renderInfra:', e); }
-  try { renderTimeline(queries);          } catch(e) { console.error('renderTimeline:', e); }
-  try { renderErrors();                   } catch(e) {}
-  try { if (queries.length) renderQueries(queries); } catch(e) { console.error('renderQueries:', e); }
-  try { loadAccessLogs();                 } catch(e) { console.error('loadAccessLogs:', e); }
-
-  // dot fallback (renderPool sets it but health might have been empty)
-  if (!health.status) {
-    document.getElementById('status-dot').className = 'pulse-dot bg-red-400';
-  }
-
-  // re-select query row
-  if (_selectedReqId && queries.length) {
-    const q = queries.find(r => r.req_id === _selectedReqId);
-    if (q) {
-      const row = document.querySelector(`tr[onclick*="${_selectedReqId}"]`);
-      if (row) row.classList.add('row-selected');
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[char]));
     }
-  }
 
-  // auto-advance active batch jobs
-  const rows = document.querySelectorAll('#batch-tbody tr');
-  const hasActive = Array.from(rows).some(r => r.innerHTML.includes('executando') || r.innerHTML.includes('aguardando'));
-  if (hasActive) loadBatchJobs();
-}
+    function fmtDate(value) {
+      if (!value) return '—';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return escapeHtml(value);
+      return date.toLocaleString('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+        day: '2-digit', month: '2-digit', year: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit'
+      });
+    }
 
-// ----------------------------------------------------------------- auto-refresh
-function setupAutoRefresh() {
-  const cb = document.getElementById('auto-refresh');
-  function toggle() {
-    if (_autoInterval) { clearInterval(_autoInterval); _autoInterval = null; }
-    if (cb.checked) { _autoInterval = setInterval(refresh, 5000); }
-  }
-  cb.addEventListener('change', toggle);
-  toggle();
-}
+    function fmtAgo(value) {
+      if (!value) return '—';
+      const diff = Math.max(0, Math.round((Date.now() - new Date(value).getTime()) / 1000));
+      return shortDur(diff) + ' atrás';
+    }
 
-// ----------------------------------------------------------------- init
-refresh();
-loadBatchJobs();
-loadAccessLogs();
-setupAutoRefresh();
+    function shortDur(seconds) {
+      if (seconds == null || Number.isNaN(Number(seconds))) return '—';
+      const total = Math.max(0, Math.round(Number(seconds)));
+      const h = Math.floor(total / 3600);
+      const m = Math.floor((total % 3600) / 60);
+      const s = total % 60;
+      if (h > 0) return `${h}h ${m}m`;
+      if (m > 0) return `${m}m ${s}s`;
+      return `${s}s`;
+    }
 
-</script>
+    function preciseDur(seconds) {
+      if (seconds == null || Number.isNaN(Number(seconds))) return '—';
+      const n = Number(seconds);
+      return n >= 10 ? `${n.toFixed(1)}s` : `${n.toFixed(2)}s`;
+    }
+
+    function pct(part, total) {
+      return total > 0 ? Math.round((part / total) * 100) : 0;
+    }
+
+    function showToast(message, type = 'info') {
+      const el = document.getElementById('toast');
+      const tone = {
+        info: 'bg-slate-900/92 text-cyan-100',
+        ok: 'bg-emerald-950/92 text-emerald-100',
+        error: 'bg-red-950/92 text-red-100'
+      }[type] || 'bg-slate-900/92 text-cyan-100';
+      el.className = `toast ${tone}`;
+      el.textContent = message;
+      el.classList.remove('hidden');
+      clearTimeout(el._timer);
+      el._timer = setTimeout(() => el.classList.add('hidden'), 4200);
+    }
+
+    async function fetchJSON(url, options) {
+      const response = await fetch(API + url, options);
+      const ct = response.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) {
+        if (response.url && response.url.includes('/login')) {
+          window.location.href = '/login';
+          throw new Error('Sessão expirada.');
+        }
+        throw new Error(`Resposta inesperada do servidor (${response.status})`);
+      }
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || response.statusText || 'Falha na requisição.');
+      return data;
+    }
+
+    function metricCard(icon, label, value, hint, tone = 'cyan') {
+      const toneClass = {
+        cyan: 'text-cyan-300',
+        green: 'text-emerald-300',
+        amber: 'text-amber-300',
+        red: 'text-red-300',
+        blue: 'text-blue-300',
+        violet: 'text-violet-300'
+      }[tone] || 'text-cyan-300';
+      return `
+        <div class="metric-card">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="mini-label mb-2">${label}</div>
+              <div class="text-3xl font-black text-white">${value}</div>
+            </div>
+            <div class="text-2xl ${toneClass}">${icon}</div>
+          </div>
+          <div class="text-sm text-slate-400 mt-3">${hint}</div>
+        </div>`;
+    }
+
+    function renderSummaryCards(overview, health, security) {
+      const queue = overview.queue || {};
+      const outcomes = overview.outcomes || {};
+      const securitySummary = security.summary || {};
+      const cards = [
+        metricCard('📥', 'Na fila agora', queue.queued || 0, `${queue.enqueued_1h || 0} entradas na última hora`, 'blue'),
+        metricCard('⚙️', 'Processando', queue.processing || 0, `maior execução ativa: ${shortDur(queue.longest_processing_s)}`, 'amber'),
+        metricCard('📨', 'Enviadas ao webhook', queue.callback_sent || 0, `${queue.sent_1h || 0} entregas na última hora`, 'cyan'),
+        metricCard('✅', 'Sucesso operacional', `${Number(queue.success_rate || 0).toFixed(1)}%`, `${outcomes.ok || 0} respostas OK concluídas`, 'green'),
+        metricCard('⏳', 'Espera média', preciseDur(queue.avg_wait_s), `fila mais antiga: ${shortDur(queue.oldest_queued_s)}`, 'violet'),
+        metricCard('🏁', 'Tempo total', preciseDur(queue.avg_total_s), `${queue.finished_1h || 0} finalizadas na última hora`, 'blue'),
+        metricCard('🚚', 'Throughput 24h', queue.finished_24h || 0, `${queue.enqueued_24h || 0} entradas no período`, 'cyan'),
+        metricCard('🛡️', 'Bloqueios 24h', securitySummary.blocked_24h || 0, `${security.enabled_total || 0} regras ativas / ${security.allowed_total || 0} totais`, 'red')
+      ];
+      document.getElementById('summary-cards').innerHTML = cards.join('');
+
+      const redis = health.redis === 'connected' ? 'Redis conectado' : (health.redis === 'disabled' ? 'Redis desabilitado' : 'Redis com falha');
+      const tone = health.status === 'ok' ? 'pill-green' : 'pill-red';
+      document.getElementById('live-status').className = `pill ${tone}`;
+      document.getElementById('live-status').textContent = `${health.status === 'ok' ? 'Online' : 'Instável'} · ${redis}`;
+    }
+
+    function renderMixRows(targetId, rows) {
+      document.getElementById(targetId).innerHTML = rows.map(item => `
+        <div>
+          <div class="flex items-center justify-between text-sm mb-1 gap-3">
+            <span class="text-slate-300">${item.label}</span>
+            <span class="font-bold text-white">${item.value}</span>
+          </div>
+          <div class="progress-track"><div class="progress-fill ${item.color}" style="width:${item.width}%"></div></div>
+        </div>
+      `).join('');
+    }
+
+    function renderMacroPanels(overview) {
+      const queue = overview.queue || {};
+      const outcomes = overview.outcomes || {};
+      const total = Math.max(1, queue.total || 0);
+      const finished = Math.max(1, (queue.done || 0) + (queue.failed || 0));
+      const callbackTotal = Math.max(1, (queue.callback_sent || 0) + (queue.callback_error || 0) + (queue.callback_pending || 0) + (queue.callback_skipped || 0));
+
+      renderMixRows('queue-mix', [
+        { label: 'Aguardando worker', value: queue.queued || 0, width: pct(queue.queued || 0, total), color: 'bg-blue-500' },
+        { label: 'Em processamento', value: queue.processing || 0, width: pct(queue.processing || 0, total), color: 'bg-amber-500' },
+        { label: 'Concluídas', value: queue.done || 0, width: pct(queue.done || 0, total), color: 'bg-emerald-500' },
+        { label: 'Falhas finais', value: queue.failed || 0, width: pct(queue.failed || 0, total), color: 'bg-red-500' }
+      ]);
+      document.getElementById('queue-mix-chip').textContent = `${queue.total || 0} totais`;
+
+      renderMixRows('outcome-mix', [
+        { label: 'OK', value: outcomes.ok || 0, width: pct(outcomes.ok || 0, finished), color: 'bg-emerald-500' },
+        { label: 'Não encontrada', value: outcomes.not_found || 0, width: pct(outcomes.not_found || 0, finished), color: 'bg-sky-500' },
+        { label: 'Dados inválidos', value: outcomes.invalid_data || 0, width: pct(outcomes.invalid_data || 0, finished), color: 'bg-orange-500' },
+        { label: 'Erro', value: outcomes.error || 0, width: pct(outcomes.error || 0, finished), color: 'bg-red-500' }
+      ]);
+      document.getElementById('outcome-chip').textContent = `${Number(queue.success_rate || 0).toFixed(1)}% sucesso`;
+
+      renderMixRows('callback-mix', [
+        { label: 'Webhook enviado', value: queue.callback_sent || 0, width: pct(queue.callback_sent || 0, callbackTotal), color: 'bg-cyan-500' },
+        { label: 'Webhook pendente', value: queue.callback_pending || 0, width: pct(queue.callback_pending || 0, callbackTotal), color: 'bg-slate-500' },
+        { label: 'Erro de callback', value: queue.callback_error || 0, width: pct(queue.callback_error || 0, callbackTotal), color: 'bg-red-500' },
+        { label: 'Sem webhook', value: queue.callback_skipped || 0, width: pct(queue.callback_skipped || 0, callbackTotal), color: 'bg-violet-500' }
+      ]);
+      document.getElementById('callback-chip').textContent = `${Number(queue.callback_success_rate || 0).toFixed(1)}% entrega`;
+
+      document.getElementById('metric-wait').textContent = preciseDur(queue.avg_wait_s);
+      document.getElementById('metric-processing').textContent = preciseDur(queue.avg_processing_s);
+      document.getElementById('metric-total').textContent = preciseDur(queue.avg_total_s);
+      document.getElementById('metric-max').textContent = preciseDur(overview.outcomes?.max_duration_s);
+      document.getElementById('runtime-chip').textContent = `${preciseDur(overview.outcomes?.avg_success_s)} média OK`;
+    }
+
+    function workerTone(status) {
+      if (status === 'idle') return { cls: 'idle', pill: 'pill-green', label: 'Livre', dot: 'ok' };
+      if (status === 'recovering' || status === 'starting') return { cls: status, pill: 'pill-blue', label: status === 'recovering' ? 'Recuperando' : 'Iniciando', dot: 'warn' };
+      if (status === 'stopping') return { cls: status, pill: 'pill-amber', label: 'Parando', dot: 'warn' };
+      if (status === 'error') return { cls: status, pill: 'pill-red', label: 'Erro', dot: 'err' };
+      return { cls: 'busy', pill: 'pill-red', label: 'Ocupado', dot: 'err' };
+    }
+
+    function renderWorkers(health) {
+      const workers = Array.isArray(health.workers) ? health.workers : [];
+      const poolSize = Number(health.pool_size || 0);
+      const poolAvailable = Number(health.pool_available || 0);
+      const busy = Math.max(0, poolSize - poolAvailable);
+      const util = poolSize > 0 ? Math.round((busy / poolSize) * 100) : 0;
+
+      document.getElementById('pool-chip').textContent = `${poolAvailable}/${poolSize} livres · ${util}% uso`;
+      document.getElementById('redis-chip').className = `pill ${health.redis === 'connected' ? 'pill-green' : health.redis === 'disabled' ? 'pill-slate' : 'pill-red'}`;
+      document.getElementById('redis-chip').textContent = `Redis ${health.redis || '—'}`;
+      document.getElementById('pool-progress').style.width = `${util}%`;
+
+      if (!workers.length) {
+        document.getElementById('workers-grid').innerHTML = '<div class="rounded-3xl border border-slate-800 bg-slate-950/60 p-6 text-slate-500">Nenhum worker inicializado.</div>';
+        return;
+      }
+
+      document.getElementById('workers-grid').innerHTML = workers.sort((a, b) => (a.worker_id || 0) - (b.worker_id || 0)).map(worker => {
+        const tone = workerTone(worker.status || 'idle');
+        const phase = escapeHtml(worker.phase || (worker.status === 'idle' ? 'Pronto para uso' : 'Processando'));
+        const meta = [
+          worker.placa ? `placa ${escapeHtml(worker.placa)}` : '',
+          worker.req_id ? `req ${escapeHtml(worker.req_id)}` : '',
+          worker.attempt ? `tentativa ${escapeHtml(worker.attempt)}` : '',
+          worker.mode ? escapeHtml(worker.mode) : ''
+        ].filter(Boolean).join(' · ');
+        const phaseFor = worker.phase_for_s != null ? `fase há ${shortDur(worker.phase_for_s)}` : 'fase sem cronômetro';
+        const buttonDisabled = worker.status === 'starting';
+        return `
+          <div class="worker-card ${tone.cls}">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <div class="mini-label">worker ${worker.worker_id}</div>
+                <div class="mt-1 flex items-center gap-2"><span class="status-dot ${tone.dot}"></span><span class="text-xl font-black text-white">${tone.label}</span></div>
+              </div>
+              <span class="pill ${tone.pill}">${escapeHtml(worker.status || 'idle')}</span>
+            </div>
+            <div class="mt-4 text-white font-semibold leading-6">${phase}</div>
+            <div class="mt-2 text-sm text-slate-400">${meta || 'Sem tarefa ativa'}</div>
+            <div class="mt-3 grid grid-cols-2 gap-3 text-sm">
+              <div class="rounded-2xl bg-slate-900/85 border border-slate-800 p-3">
+                <div class="mini-label mb-1">tempo atual</div>
+                <div class="font-bold text-white">${escapeHtml(phaseFor)}</div>
+              </div>
+              <div class="rounded-2xl bg-slate-900/85 border border-slate-800 p-3">
+                <div class="mini-label mb-1">força parada</div>
+                <div class="font-bold ${worker.force_stop_requested ? 'text-amber-300' : 'text-slate-300'}">${worker.force_stop_requested ? 'solicitada' : 'não'}</div>
+              </div>
+            </div>
+            ${worker.last_error ? `<div class="mt-3 rounded-2xl border border-red-500/20 bg-red-500/10 px-3 py-2 text-sm text-red-200">${escapeHtml(String(worker.last_error).slice(0, 180))}</div>` : ''}
+            <div class="mt-4 flex justify-end">
+              <button class="btn btn-danger" ${buttonDisabled ? 'disabled' : ''} onclick="forceStopWorker(${Number(worker.worker_id)})">Parar à força</button>
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    function statusBadge(status) {
+      const map = {
+        queued: 'pill-blue',
+        processing: 'pill-amber',
+        done: 'pill-green',
+        ok: 'pill-green',
+        error: 'pill-red',
+        invalid_data: 'pill-red',
+        not_found: 'pill-slate'
+      };
+      return `<span class="pill ${map[status] || 'pill-slate'}">${escapeHtml(status || '—')}</span>`;
+    }
+
+    function callbackBadge(status) {
+      const map = { sent: 'pill-cyan', pending: 'pill-slate', error: 'pill-red', skipped: 'pill-violet' };
+      return `<span class="pill ${map[status] || 'pill-slate'}">${escapeHtml(status || '—')}</span>`;
+    }
+
+    function computeTimeBlock(item) {
+      const wait = item.started_at ? (new Date(item.started_at) - new Date(item.created_at)) / 1000 : null;
+      const proc = item.started_at && item.finished_at ? (new Date(item.finished_at) - new Date(item.started_at)) / 1000 : null;
+      const total = item.finished_at ? (new Date(item.finished_at) - new Date(item.created_at)) / 1000 : null;
+      return { wait, proc, total };
+    }
+
+    function renderQueueTable(items) {
+      queueMap = {};
+      items.forEach(item => { queueMap[item.req_id] = item; });
+      document.getElementById('queue-table-chip').textContent = `${items.length} itens recentes`;
+      if (!items.length) {
+        document.getElementById('queue-rows').innerHTML = '<tr><td colspan="6" class="text-slate-500">Nenhuma requisição em fila.</td></tr>';
+        return;
+      }
+
+      document.getElementById('queue-rows').innerHTML = items.map(item => {
+        const t = computeTimeBlock(item);
+        const canResend = !!item.result_body;
+        return `
+          <tr onclick="loadRequestDetail('${item.req_id}')" class="cursor-pointer">
+            <td>
+              <div class="font-black text-white">${escapeHtml(item.placa || '—')}</div>
+              <div class="text-xs text-slate-400 mt-1">${escapeHtml(item.req_id)}</div>
+              <div class="text-xs text-slate-500 mt-1">${escapeHtml(item.source || 'queue')}</div>
+            </td>
+            <td>
+              <div class="flex flex-wrap gap-2">${statusBadge(item.status)} ${item.result_body?.status && item.status !== item.result_body.status ? statusBadge(item.result_body.status) : ''}</div>
+            </td>
+            <td>
+              <div class="text-sm text-slate-300">Fila: <b class="text-white">${preciseDur(t.wait)}</b></div>
+              <div class="text-sm text-slate-300">Exec: <b class="text-white">${preciseDur(t.proc)}</b></div>
+              <div class="text-sm text-slate-300">Total: <b class="text-white">${preciseDur(t.total)}</b></div>
+            </td>
+            <td>
+              <div>${callbackBadge(item.callback_status)}</div>
+              <div class="text-xs text-slate-400 mt-2">tentativas: ${escapeHtml(item.callback_attempts || 0)}</div>
+            </td>
+            <td>
+              <div class="text-sm text-white">${fmtDate(item.updated_at || item.finished_at || item.created_at)}</div>
+              <div class="text-xs text-slate-500 mt-1">criada ${fmtAgo(item.created_at)}</div>
+            </td>
+            <td class="text-right">
+              <div class="flex justify-end gap-2 flex-wrap" onclick="event.stopPropagation()">
+                <button class="btn btn-ghost" onclick="loadRequestDetail('${item.req_id}')">Detalhes</button>
+                <button class="btn btn-secondary" onclick="requeueRequest('${item.req_id}')">Reenfileirar</button>
+                <button class="btn btn-primary" ${canResend ? '' : 'disabled'} onclick="resendWebhook('${item.req_id}')">Reenviar webhook</button>
+              </div>
+            </td>
+          </tr>`;
+      }).join('');
+    }
+
+    function renderCallbackErrors(items) {
+      const list = document.getElementById('callback-errors');
+      if (!items.length) {
+        list.innerHTML = '<div class="text-slate-500">Nenhum erro de callback recente.</div>';
+        return;
+      }
+      list.innerHTML = items.map(item => `
+        <div class="rounded-2xl border border-red-500/18 bg-red-500/8 p-3">
+          <div class="flex items-center justify-between gap-3">
+            <div class="font-bold text-white">${escapeHtml(item.placa)} · ${escapeHtml(item.req_id)}</div>
+            <button class="btn btn-secondary !px-3 !py-2" onclick="resendWebhook('${item.req_id}')">Reenviar</button>
+          </div>
+          <div class="mt-2 text-red-200">${escapeHtml(item.callback_last_error || 'Falha sem detalhe.')}</div>
+          <div class="mt-2 text-xs text-slate-400">${fmtDate(item.updated_at)}</div>
+        </div>`).join('');
+    }
+
+    function renderQueryErrors(items) {
+      const list = document.getElementById('query-errors');
+      document.getElementById('alerts-chip').textContent = `${(items?.length || 0)} erros mapeados`;
+      if (!items.length) {
+        list.innerHTML = '<div class="text-slate-500">Sem erros agrupados no momento.</div>';
+        return;
+      }
+      list.innerHTML = items.slice(0, 6).map(item => `
+        <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-3">
+          <div class="font-semibold text-white">${escapeHtml(item.error_msg || 'Erro sem mensagem')}</div>
+          <div class="mt-2 flex items-center justify-between gap-3 text-xs text-slate-400">
+            <span>${escapeHtml(item.count || 0)} ocorrências</span>
+            <span>${fmtDate(item.last_seen)}</span>
+          </div>
+        </div>`).join('');
+    }
+
+    function renderSecurityPanel(security) {
+      const summary = security.summary || {};
+      document.getElementById('security-cards').innerHTML = [
+        { label: 'IPs únicos', value: summary.unique_ips_24h || 0, tone: 'pill-blue' },
+        { label: 'Permitidos', value: summary.allowed_24h || 0, tone: 'pill-green' },
+        { label: 'Bloqueios', value: summary.blocked_24h || 0, tone: 'pill-red' },
+        { label: 'Auth fail', value: summary.auth_fail_24h || 0, tone: 'pill-amber' }
+      ].map(item => `
+        <div class="rounded-3xl border border-slate-800 bg-slate-950/60 p-4">
+          <div class="mini-label mb-2">${item.label}</div>
+          <div class="text-3xl font-black text-white">${item.value}</div>
+        </div>`).join('');
+
+      const hotPaths = Array.isArray(security.hot_paths) ? security.hot_paths : [];
+      document.getElementById('hot-paths').innerHTML = hotPaths.length
+        ? hotPaths.slice(0, 5).map(path => `
+            <div class="rounded-2xl border border-slate-800 bg-slate-900/80 p-3">
+              <div class="font-semibold text-white break-all">${escapeHtml(path.path || '—')}</div>
+              <div class="mt-2 flex items-center justify-between gap-3 text-xs">
+                <span class="text-slate-400">total ${escapeHtml(path.total || 0)}</span>
+                <span class="text-red-300">bloq ${escapeHtml(path.blocked || 0)}</span>
+                <span class="text-green-300">allow ${escapeHtml(path.allowed || 0)}</span>
+              </div>
+            </div>`).join('')
+        : '<div class="text-slate-500">Sem dados recentes de firewall.</div>';
+    }
+
+    function renderAccessLogs(items) {
+      document.getElementById('access-chip').textContent = `${items.length} acessos recentes`;
+      if (!items.length) {
+        document.getElementById('access-rows').innerHTML = '<tr><td colspan="7" class="text-slate-500">Sem acessos registrados.</td></tr>';
+        return;
+      }
+      document.getElementById('access-rows').innerHTML = items.map(item => `
+        <tr>
+          <td>${fmtDate(item.created_at)}</td>
+          <td class="text-slate-300">${escapeHtml(item.ip || '—')}</td>
+          <td><span class="pill pill-slate">${escapeHtml(item.method || '—')}</span></td>
+          <td class="text-slate-300 break-all">${escapeHtml(item.path || '—')}</td>
+          <td class="font-bold text-white">${escapeHtml(item.placa || '—')}</td>
+          <td>${statusBadge(item.status || '—')}</td>
+          <td class="text-slate-300">${item.duration_ms != null ? `${Math.round(Number(item.duration_ms))} ms` : '—'}</td>
+        </tr>`).join('');
+    }
+
+    function renderDetail(item) {
+      document.getElementById('detail-chip').textContent = item.req_id || '—';
+      const logs = Array.isArray(item.logs) ? item.logs : [];
+      const payload = item.payload ? JSON.stringify(item.payload, null, 2) : 'Sem payload.';
+      const result = item.result_body ? JSON.stringify(item.result_body, null, 2) : 'Sem resultado disponível.';
+      document.getElementById('detail-panel').innerHTML = `
+        <div class="rounded-3xl border border-slate-800 bg-slate-950/55 p-4">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="mini-label">requisição</div>
+              <div class="text-2xl font-black text-white mt-1">${escapeHtml(item.placa || '—')}</div>
+              <div class="text-sm text-slate-400 mt-1">${escapeHtml(item.req_id || '—')}</div>
+            </div>
+            <div class="flex flex-wrap gap-2 justify-end">${statusBadge(item.status)} ${callbackBadge(item.callback_status)}</div>
+          </div>
+          <div class="grid grid-cols-2 gap-3 mt-4 text-sm">
+            <div><div class="mini-label mb-1">criada</div><div class="text-white">${fmtDate(item.created_at)}</div></div>
+            <div><div class="mini-label mb-1">atualizada</div><div class="text-white">${fmtDate(item.updated_at || item.finished_at)}</div></div>
+            <div><div class="mini-label mb-1">http status</div><div class="text-white">${escapeHtml(item.http_status || '—')}</div></div>
+            <div><div class="mini-label mb-1">callback tentativas</div><div class="text-white">${escapeHtml(item.callback_attempts || 0)}</div></div>
+          </div>
+          <div class="flex flex-wrap gap-2 mt-4">
+            <button class="btn btn-secondary" onclick="requeueRequest('${item.req_id}')">Reenfileirar placa</button>
+            <button class="btn btn-primary" ${item.result_body ? '' : 'disabled'} onclick="resendWebhook('${item.req_id}')">Reenviar webhook</button>
+          </div>
+        </div>
+        <div>
+          <div class="mini-label mb-2">payload original</div>
+          <div class="code-block">${escapeHtml(payload)}</div>
+        </div>
+        <div>
+          <div class="mini-label mb-2">resultado final</div>
+          <div class="code-block">${escapeHtml(result)}</div>
+        </div>
+        <div>
+          <div class="mini-label mb-2">logs</div>
+          <div class="code-block">${logs.length ? escapeHtml(logs.map(log => `[${fmtDate(log.created_at)}] ${log.level}: ${log.message}`).join('\n')) : 'Sem logs detalhados.'}</div>
+        </div>`;
+    }
+
+    async function loadRequestDetail(reqId) {
+      selectedReqId = reqId;
+      try {
+        const item = await fetchJSON(`/queue/${reqId}`);
+        renderDetail(item);
+      } catch (error) {
+        showToast(error.message, 'error');
+      }
+    }
+
+    async function enqueueManualTest(event) {
+      event.preventDefault();
+      const plate = document.getElementById('manual-plate').value.trim().toUpperCase();
+      const webhook = document.getElementById('manual-webhook').value.trim();
+      const noCache = document.getElementById('manual-no-cache').checked;
+      const button = document.getElementById('manual-submit');
+      button.disabled = true;
+      try {
+        const data = await fetchJSON('/queue/placa', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ placa: plate, no_cache: noCache, webhook_url: webhook || null, metadata: { source: 'dashboard_admin' } })
+        });
+        document.getElementById('manual-result').innerHTML = `Placa <b class="text-white">${escapeHtml(data.placa)}</b> enviada com req <b class="text-cyan-300">${escapeHtml(data.req_id)}</b> · posição ${escapeHtml(data.queue_position ?? '—')}`;
+        document.getElementById('manual-plate').value = '';
+        document.getElementById('manual-webhook').value = '';
+        document.getElementById('manual-no-cache').checked = false;
+        showToast(`Placa ${data.placa} enviada para a fila.`, 'ok');
+        await refreshAll();
+      } catch (error) {
+        showToast(error.message, 'error');
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    async function requeueRequest(reqId) {
+      if (!confirm(`Reenfileirar a placa vinculada a ${reqId}?`)) return;
+      try {
+        const data = await fetchJSON(`/queue/${reqId}/requeue`, { method: 'POST' });
+        showToast(`Nova execução ${data.req_id} criada para ${data.placa}.`, 'ok');
+        await refreshAll();
+        await loadRequestDetail(data.req_id);
+      } catch (error) {
+        showToast(error.message, 'error');
+      }
+    }
+
+    async function resendWebhook(reqId) {
+      if (!confirm(`Reenviar o resultado da requisição ${reqId} para o webhook?`)) return;
+      try {
+        const data = await fetchJSON(`/queue/${reqId}/resend-webhook`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        showToast(`Webhook de ${reqId} processado com status ${data.callback_status}.`, data.callback_status === 'sent' ? 'ok' : 'info');
+        await refreshAll();
+        if (selectedReqId === reqId) await loadRequestDetail(reqId);
+      } catch (error) {
+        showToast(error.message, 'error');
+      }
+    }
+
+    async function forceStopWorker(workerId) {
+      if (!confirm(`Forçar parada do worker W${workerId}?`)) return;
+      try {
+        const data = await fetchJSON(`/pool/workers/${workerId}/force-stop`, { method: 'POST' });
+        showToast(data.message || `Worker W${workerId} recebeu comando de parada.`, 'ok');
+        await refreshAll();
+      } catch (error) {
+        showToast(error.message, 'error');
+      }
+    }
+
+    async function restartRpa() {
+      if (!confirm('Reiniciar o serviço RPA agora? Isso derruba e recria todos os workers.')) return;
+      const btn = document.getElementById('btn-restart');
+      btn.disabled = true;
+      try {
+        const data = await fetchJSON('/admin/restart', { method: 'POST' });
+        showToast(data.message || 'Reinício solicitado.', 'ok');
+      } catch (error) {
+        showToast(error.message, 'error');
+      } finally {
+        setTimeout(() => { btn.disabled = false; }, 22000);
+      }
+    }
+
+    function setupAutoRefresh() {
+      const checkbox = document.getElementById('auto-refresh');
+      const toggle = () => {
+        if (autoTimer) clearInterval(autoTimer);
+        if (checkbox.checked) autoTimer = setInterval(refreshAll, 5000);
+      };
+      checkbox.addEventListener('change', toggle);
+      toggle();
+    }
+
+    async function refreshAll() {
+      document.getElementById('last-refresh').textContent = new Date().toLocaleTimeString('pt-BR');
+      let overview = { queue: {}, outcomes: {}, recent_callback_errors: [] };
+      let health = {};
+      let queueItems = [];
+      let accessLogs = [];
+      let queryErrors = [];
+      let security = { summary: {}, hot_paths: [] };
+
+      await Promise.all([
+        fetchJSON('/api/admin/overview').then(data => { overview = data; }).catch(error => console.warn('overview', error)),
+        fetchJSON('/health').then(data => { health = data; }).catch(error => console.warn('health', error)),
+        fetchJSON('/queue?limit=80').then(data => { queueItems = data; }).catch(error => console.warn('queue', error)),
+        fetchJSON('/api/access-logs?limit=40').then(data => { accessLogs = data; }).catch(error => console.warn('access', error)),
+        fetchJSON('/api/errors').then(data => { queryErrors = data; }).catch(error => console.warn('errors', error)),
+        fetchJSON('/api/security/overview?hours=24').then(data => { security = data; }).catch(error => console.warn('security', error))
+      ]);
+
+      renderSummaryCards(overview, health, security);
+      renderMacroPanels(overview);
+      renderWorkers(health);
+      renderQueueTable(queueItems);
+      renderCallbackErrors(overview.recent_callback_errors || []);
+      renderQueryErrors(queryErrors || []);
+      renderSecurityPanel(security);
+      renderAccessLogs(accessLogs || []);
+
+      if (selectedReqId) {
+        const stillExists = queueItems.find(item => item.req_id === selectedReqId);
+        if (stillExists) {
+          await loadRequestDetail(selectedReqId);
+        }
+      }
+    }
+
+    setupAutoRefresh();
+    refreshAll();
+  </script>
 </body>
 </html>

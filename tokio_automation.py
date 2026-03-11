@@ -1,12 +1,14 @@
+import logging
 import time
-from typing import Dict, Optional
+from typing import Callable, Dict, Optional
 
 from selenium import webdriver
+from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service as ChromeService
-from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException
+from selenium.common.exceptions import TimeoutException, NoSuchElementException, StaleElementReferenceException, ElementClickInterceptedException, ElementNotInteractableException
 import shutil
 import requests
 import re
@@ -15,6 +17,9 @@ from config import (
     get_credentials, get_urls, get_headless, nova_cotacao_url, login_url_with_goto,
     TIMEOUT_DRIVER, TIMEOUT_MODAL, TIMEOUT_IFRAME, TIMEOUT_PAGE,
 )
+
+
+logger = logging.getLogger("tokio_automation")
 
 
 class PlacaNaoEncontradaError(ValueError):
@@ -53,6 +58,7 @@ def build_driver(headless: Optional[bool] = None) -> webdriver.Chrome:
 
     def _make(headless_flag: bool) -> webdriver.Chrome:
         options = webdriver.ChromeOptions()
+        options.page_load_strategy = 'eager'
         if headless_flag:
             options.add_argument('--headless=new')
         options.add_argument('--no-sandbox')
@@ -72,21 +78,34 @@ def build_driver(headless: Optional[bool] = None) -> webdriver.Chrome:
         options.add_argument('--disable-translate')
         options.add_argument('--disable-client-side-phishing-detection')
         options.add_argument('--disable-hang-monitor')
+        options.add_argument('--disable-renderer-backgrounding')
+        options.add_argument('--disable-backgrounding-occluded-windows')
+        options.add_argument('--disable-background-timer-throttling')
         options.add_argument('--disable-popup-blocking')
         options.add_argument('--no-first-run')
         options.add_argument('--metrics-recording-only')
-        options.add_argument('--renderer-process-limit=1')          # 1 renderer por Chrome
-        options.add_argument('--js-flags=--max-old-space-size=256')  # limita heap JS a 256MB
+        options.add_argument('--js-flags=--max-old-space-size=512')  # evita travas do renderer sob carga
         options.add_experimental_option('excludeSwitches', ['enable-automation', 'enable-logging'])
         options.add_experimental_option('useAutomationExtension', False)
+        options.add_experimental_option('prefs', {
+            'profile.managed_default_content_settings.images': 2,
+            'profile.default_content_setting_values.notifications': 2,
+            'profile.default_content_setting_values.geolocation': 2,
+        })
         # Usa chromedriver do sistema (instalado em /usr/local/bin) ou deixa Selenium Manager encontrar
         chromedriver_path = shutil.which('chromedriver') or '/usr/local/bin/chromedriver'
         try:
             service = ChromeService(chromedriver_path)
-            return webdriver.Chrome(service=service, options=options)
+            driver = webdriver.Chrome(service=service, options=options)
         except Exception:
             # Fallback: Selenium Manager sem especificar service
-            return webdriver.Chrome(options=options)
+            driver = webdriver.Chrome(options=options)
+
+        try:
+            driver.set_page_load_timeout(TIMEOUT_PAGE)
+        except Exception:
+            pass
+        return driver
 
     # Tenta criar em headless; se falhar, tenta com janela normal
     try:
@@ -97,6 +116,83 @@ def build_driver(headless: Optional[bool] = None) -> webdriver.Chrome:
         raise
 
 
+def _focus_element(driver: webdriver.Chrome, element: WebElement) -> None:
+    driver.execute_script(
+        "arguments[0].scrollIntoView({block: 'center', inline: 'center'});"
+        "arguments[0].focus();",
+        element,
+    )
+
+
+def _type_into_field(driver: webdriver.Chrome, selector: str, value: str, timeout: int = 15) -> None:
+    last_error: Optional[Exception] = None
+    for attempt in range(3):
+        try:
+            element = WebDriverWait(driver, timeout).until(
+                EC.visibility_of_element_located((By.CSS_SELECTOR, selector))
+            )
+            WebDriverWait(driver, timeout).until(lambda d: element.is_displayed() and element.is_enabled())
+            _focus_element(driver, element)
+            try:
+                element.click()
+            except Exception:
+                driver.execute_script("arguments[0].click();", element)
+
+            try:
+                element.clear()
+            except Exception:
+                driver.execute_script("arguments[0].value = '';", element)
+
+            element.send_keys(value)
+            current_value = (element.get_attribute('value') or '').strip()
+            if current_value != value:
+                driver.execute_script(
+                    "arguments[0].value = arguments[1];"
+                    "arguments[0].dispatchEvent(new Event('input', {bubbles: true}));"
+                    "arguments[0].dispatchEvent(new Event('change', {bubbles: true}));",
+                    element,
+                    value,
+                )
+                current_value = (element.get_attribute('value') or '').strip()
+
+            if current_value == value:
+                return
+
+            raise ElementNotInteractableException(f"Campo {selector} não confirmou o valor informado.")
+        except (TimeoutException, StaleElementReferenceException, ElementClickInterceptedException, ElementNotInteractableException) as exc:
+            last_error = exc
+            time.sleep(0.4 * (attempt + 1))
+
+    if last_error:
+        raise last_error
+    raise TimeoutException(f"Campo {selector} não ficou pronto para digitação.")
+
+
+def _safe_click(driver: webdriver.Chrome, selector: str, timeout: int = 15) -> None:
+    last_error: Optional[Exception] = None
+    for attempt in range(3):
+        try:
+            element = WebDriverWait(driver, timeout).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, selector))
+            )
+            _focus_element(driver, element)
+            WebDriverWait(driver, timeout).until(lambda d: element.is_displayed() and element.is_enabled())
+            try:
+                WebDriverWait(driver, timeout).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, selector))
+                ).click()
+            except Exception:
+                driver.execute_script("arguments[0].click();", element)
+            return
+        except (TimeoutException, StaleElementReferenceException, ElementClickInterceptedException, ElementNotInteractableException) as exc:
+            last_error = exc
+            time.sleep(0.4 * (attempt + 1))
+
+    if last_error:
+        raise last_error
+    raise TimeoutException(f"Elemento {selector} não ficou clicável.")
+
+
 def login(driver: webdriver.Chrome, timeout: int = 60) -> None:
     username, password = get_credentials()
     login_url, portal_url = get_urls()
@@ -105,15 +201,12 @@ def login(driver: webdriver.Chrome, timeout: int = 60) -> None:
     driver.get(login_url)
 
     # Campos padrão do OpenAM XUI
-    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, '#idToken1')))
-    driver.find_element(By.CSS_SELECTOR, '#idToken1').clear()
-    driver.find_element(By.CSS_SELECTOR, '#idToken1').send_keys(username)
-
-    driver.find_element(By.CSS_SELECTOR, '#idToken2').clear()
-    driver.find_element(By.CSS_SELECTOR, '#idToken2').send_keys(password)
+    wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, '#idToken1')))
+    _type_into_field(driver, '#idToken1', username, timeout=min(timeout, 20))
+    _type_into_field(driver, '#idToken2', password, timeout=min(timeout, 20))
 
     # Entrar
-    driver.find_element(By.CSS_SELECTOR, '#loginButton_0').click()
+    _safe_click(driver, '#loginButton_0', timeout=min(timeout, 20))
 
     # Não depender do redirecionamento automático do OpenAM
     # Apenas aguarda uma transição curta (perfil/portal/login) e segue adiante
@@ -502,18 +595,62 @@ def reload_cotador_iframe(driver: webdriver.Chrome, timeout: int = 30) -> None:
     wait.until(_cotador_ready)
 
 
-def query_plate(driver: webdriver.Chrome, placa: str, timeout: int = 60) -> Dict[str, Optional[str]]:
+_FAST_REQUIRED_FIELDS = ('chassi', 'veiculo', 'valor_base_do_veiculo', 'codigo_fipe')
+_FAST_ZERO_VALUES = {'r$ 0,00', '0,00', 'r$0,00', ''}
+
+
+def _is_fast_result_usable(dados: Optional[Dict[str, Optional[str]]]) -> bool:
+    if not isinstance(dados, dict):
+        return False
+    for campo in _FAST_REQUIRED_FIELDS:
+        valor = (dados.get(campo) or '').strip().lower()
+        if not valor or valor in _FAST_ZERO_VALUES:
+            return False
+    return True
+
+
+def query_plate(
+    driver: webdriver.Chrome,
+    placa: str,
+    timeout: int = 60,
+    progress_callback: Optional[Callable[[str], None]] = None,
+) -> Dict[str, Optional[str]]:
     """
     Preenche a placa no formulário da cotação e retorna os dados do veículo.
     Assume que o driver está no contexto padrão (default_content).
     Localiza o CotadorAutoService iframe pela URL src para robustez.
     """
     from selenium.webdriver.common.keys import Keys
+    t_start = time.monotonic()
+
+    def _progress(label: str) -> None:
+        if progress_callback:
+            try:
+                progress_callback(label)
+            except Exception:
+                pass
+
+    def _remaining_timeout(*, reserve: float = 0.0, minimum: int = 1) -> int:
+        remaining = max(minimum, int(timeout - (time.monotonic() - t_start) - reserve))
+        return remaining
+
     wait = WebDriverWait(driver, timeout, poll_frequency=0.15)  # poll 150ms vs 500ms padrão
 
     placa_txt = (placa or '').strip().upper()
     if not placa_txt:
         raise ValueError('Placa vazia')
+
+    # Caminho rápido: consulta direto na API interna do portal usando cookies da sessão.
+    # Se vier consistente, evita toda a interação Angular/iframe.
+    try:
+        _progress('Consulta rápida pela API interna')
+        api_timeout = max(8, min(timeout, 15))
+        dados_api = query_plate_via_api(driver, placa_txt, timeout=api_timeout)
+        if _is_fast_result_usable(dados_api):
+            _progress('Dados obtidos via API interna')
+            return dados_api
+    except Exception as e:
+        logger.debug('Fallback para fluxo UI após falha no caminho direto da API: %s', e)
 
     # Vai ao contexto principal para buscar o iframe correto
     try:
@@ -526,8 +663,10 @@ def query_plate(driver: webdriver.Chrome, placa: str, timeout: int = 60) -> Dict
         return _find_cotador_iframe(drv) is not None
 
     try:
+        _progress('Aguardando iframe do cotador')
         wait.until(_cotador_iframe_present)
     except TimeoutException:
+        _progress('Recuperando sessão do portal')
         # Iframe não apareceu — verifica se a sessão SSO ainda está viva.
         try:
             driver.switch_to.default_content()
@@ -539,15 +678,15 @@ def query_plate(driver: webdriver.Chrome, placa: str, timeout: int = 60) -> Dict
             # Sessão expirada: faz login completo antes de redirecionar
             print('[query_plate] Sessão SSO expirada — refazendo login antes de re-navegar.', flush=True)
             try:
-                login(driver, timeout=90)
+                login(driver, timeout=_remaining_timeout(reserve=5, minimum=5))
             except Exception as login_err:
                 print(f'[query_plate] Falha no re-login: {login_err}', flush=True)
         else:
             print('[query_plate] Sessão aparenta estar viva, mas iframe não carregou — re-navegando.', flush=True)
 
-        go_to_nova_cotacao(driver, timeout=90)
+        go_to_nova_cotacao(driver, timeout=_remaining_timeout(reserve=2, minimum=5))
         try:
-            wait2 = WebDriverWait(driver, 90, poll_frequency=0.15)
+            wait2 = WebDriverWait(driver, _remaining_timeout(minimum=5), poll_frequency=0.15)
             wait2.until(_cotador_iframe_present)
         except TimeoutException:
             raise TimeoutException(
@@ -560,6 +699,7 @@ def query_plate(driver: webdriver.Chrome, placa: str, timeout: int = 60) -> Dict
     if cotador_frame is None:
         raise RuntimeError('CotadorAutoService iframe não encontrado')
     driver.switch_to.frame(cotador_frame)
+    _progress('Formulário carregado')
     wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, 'input.placa')))
 
     def _get_plate_input():
@@ -583,6 +723,7 @@ def query_plate(driver: webdriver.Chrome, placa: str, timeout: int = 60) -> Dict
 
     # Prepara campo em 1 round-trip: scroll + unlock + clear + focus + dispara eventos
     try:
+        _progress('Preenchendo placa')
         _retry_stale(lambda: driver.execute_script(
             "var el=arguments[0];"
             "el.scrollIntoView({block:'center'});"
@@ -638,6 +779,7 @@ def query_plate(driver: webdriver.Chrome, placa: str, timeout: int = 60) -> Dict
 
     # Passo 2: clica no botão Pesquisar Veiculos (agora deve estar habilitado)
     # Usa JS click para ignorar qualquer overlay/span que intercepta o clique normal
+    _progress('Pesquisando veículo no portal')
     btns = driver.find_elements(By.CSS_SELECTOR, 'button.btn-pesquisar-veiculos')
     if not btns:
         btns = driver.find_elements(By.CSS_SELECTOR, 'a.btn-pesquisar-cotacao')
@@ -654,6 +796,7 @@ def query_plate(driver: webdriver.Chrome, placa: str, timeout: int = 60) -> Dict
         raise PlacaNaoEncontradaError(f"Placa {placa_txt} não localizada no sistema Tokio Marine")
 
     # Sempre tenta selecionar o veículo da "Lista de Veículos" (modal abre após Pesquisar)
+    _progress('Selecionando veículo na lista')
     _maybe_select_first_vehicle_in_modal(driver, timeout=20)
     # Não usa sleep fixo — _vehicle_info_populated abaixo aguarda o formulário atualizar
 
@@ -673,6 +816,7 @@ def query_plate(driver: webdriver.Chrome, placa: str, timeout: int = 60) -> Dict
         )
 
     try:
+        _progress('Aguardando dados do veículo')
         wait.until(_vehicle_info_populated)
     except TimeoutException:
         # Confirma se o timeout foi causado por placa não encontrada
@@ -704,6 +848,7 @@ def query_plate(driver: webdriver.Chrome, placa: str, timeout: int = 60) -> Dict
         return ''
 
     try:
+        _progress('Lendo dados finais do veículo')
         raw = driver.execute_script(
             "var s=function(sel){"
             "  var e=document.querySelector(sel);"
@@ -755,6 +900,7 @@ def query_plate(driver: webdriver.Chrome, placa: str, timeout: int = 60) -> Dict
     except Exception:
         pass
 
+    _progress('Consulta concluída')
     return dados
 
 
@@ -809,6 +955,10 @@ def _dismiss_cookies_banner(driver: webdriver.Chrome) -> None:
 
 
 def _get_calc_id_from_page(driver: webdriver.Chrome) -> Optional[str]:
+    cached = getattr(driver, '_tokio_calc_id', None)
+    if isinstance(cached, str) and cached.isdigit():
+        return cached
+
     def _search_html(html: str) -> Optional[str]:
         # Padrão no atributo name do input: mapCotacoes{CALC}.dados...
         m = re.search(r'mapCotacoes(\d+)', html)
@@ -824,6 +974,7 @@ def _get_calc_id_from_page(driver: webdriver.Chrome) -> Optional[str]:
     try:
         result = _search_html(driver.page_source)
         if result:
+            setattr(driver, '_tokio_calc_id', result)
             return result
     except Exception:
         pass
@@ -833,6 +984,7 @@ def _get_calc_id_from_page(driver: webdriver.Chrome) -> Optional[str]:
         driver.switch_to.default_content()
         result = _search_html(driver.page_source)
         if result:
+            setattr(driver, '_tokio_calc_id', result)
             return result
     except Exception:
         pass
@@ -845,6 +997,7 @@ def _get_calc_id_from_page(driver: webdriver.Chrome) -> Optional[str]:
                 driver.switch_to.frame(fr)
                 result = _search_html(driver.page_source)
                 if result:
+                    setattr(driver, '_tokio_calc_id', result)
                     driver.switch_to.default_content()
                     return result
             except Exception:
